@@ -63,11 +63,19 @@ then `npm run dev` and open the printed URL.
 
 ## How a run works (and how to tune it)
 
-1. `/api/profile`: one call writes your taste profile from the full library (reviews and private notes included). Cached in the page; edit it freely.
-2. `/api/shelf` x4, in parallel: each shelf returns only title, author, year and a one-line hook, then every title is checked against Open Library / Google Books and given a cover. Shelves appear as they finish.
+1. `/api/profile`: one call writes your taste profile as 8-12 short statements from the full library (reviews and private notes included; notes are weighted above star ratings). You can edit, delete or add statements, and every shelf follows them. Press **Re-read my library** after importing new notes.
+2. `/api/shelf`, one call per shelf: the front table (6 picks mixing your to-read pile with new books), the to-read pile, then themed shelves (closest fit, books that argue back, a different voice, stretch, short and dense, long-haul reads, recent arrivals, wildcards). Each returns only title, author, year, a hook, fiction/non-fiction and approximate pages; every title is checked against Open Library / Google Books and given a cover. The first three shelves load on Build; the rest are stocked as you scroll, so you only spend usage on shelves you reach.
 3. `/api/explain`: the full "why / links / themes / might not land" for one book, fetched when you click it and cached.
 
-Time is dominated by how many words Claude has to write, so shelf size is the main dial: edit `SHELVES` in `server/prompt.js` (`count` per shelf). The local server logs how long each call and each `claude -p` run took. Set `CLAUDE_MODEL` (for example `haiku`) for faster, lighter calls.
+Feedback loop and browsing:
+- **Not for me** asks why (optional chips and free text). The reason is sent with every later shelf request, so the shop learns from rejections.
+- **I've read this** takes a rating and a one-line note, updates your library (a to-read book moves to read) and marks the taste statements as stale.
+- **More like this** opens a new shelf seeded from that book. **Show more like this** adds a fresh batch to a shelf without repeating anything shown; **Freshen the window** replaces the front table.
+- Filters (type, length, era) hide books already on the shelves. Kind and page counts come from the model, so they are approximate; books with unknown values are never hidden.
+- Re-importing a Goodreads CSV keeps your shop, picks, dismissals and statement edits, and keeps books you marked as read in the app.
+- Each shelf holds at most one book per author, for variety.
+
+Time is dominated by how many words Claude has to write, so shelf size is the main dial: edit `SHELVES` in `server/prompt.js` (`count` per shelf, or add and remove shelves; the page reads the list from `/api/config`). The local server logs how long each call and each `claude -p` run took. Set `CLAUDE_MODEL` (for example `haiku`) for faster, lighter calls. The page keeps at most three shelf requests in flight so the local server's limit of five is never hit.
 
 ## Missing a cover?
 
@@ -93,5 +101,7 @@ npm test
 
 - Compare view for the shortlist
 - Richer "why": how different authors treat the same theme
-- Cache lookups so refreshes are quicker and cheaper
+- Two-pass picking: generate a larger pool, then choose and de-duplicate in a second call
+- Ground obscure titles with a Google Books description before explaining them
+- Cache catalogue lookups across sessions (today the cache lives in the server process)
 - Streaming the response so long runs can't hit a gateway timeout

@@ -15,7 +15,11 @@ const post = (u, body) => fetch(u, { method: 'POST', headers: { 'content-type': 
 
 test('local server: config, static files, no path traversal, no passcode needed', async () => {
   await withServer({ ask: async () => 'ok' }, async base => {
-    assert.deepStrictEqual(await (await fetch(base + '/api/config')).json(), { passcodeRequired: false, mode: 'local-claude-code' });
+    const cfg = await (await fetch(base + '/api/config')).json();
+    assert.strictEqual(cfg.passcodeRequired, false);
+    assert.strictEqual(cfg.mode, 'local-claude-code');
+    assert.strictEqual(cfg.shelves[0].title, 'On the front table');
+    assert.ok(cfg.shelves.every(s => s.title && s.blurb));
     const home = await fetch(base + '/');
     assert.strictEqual(home.status, 200);
     assert.match(await home.text(), /Next Read/);
@@ -36,7 +40,7 @@ test('local server: profile, shelf and explain use the injected claude (no netwo
   const lookup = async () => ({ verified: true, cover: 'https://example.test/c.jpg', source: 'test' });
   await withServer({ ask, lookup }, async base => {
     assert.deepStrictEqual(await (await post(base + '/api/profile', { library: lib })).json(), { profile: 'You like big ideas.' });
-    const out = await (await post(base + '/api/shelf', { library: lib, profile: 'x', shelf: 1 })).json();
+    const out = await (await post(base + '/api/shelf', { library: lib, profile: 'x', shelf: 2 })).json();
     assert.strictEqual(out.shelf, 'Closest fit');
     assert.strictEqual(out.books[0].cover, 'https://example.test/c.jpg');
     const ex = await (await post(base + '/api/explain', { library: lib, profile: 'x', book: { title: 'Diaspora', author: 'Greg Egan' } })).json();

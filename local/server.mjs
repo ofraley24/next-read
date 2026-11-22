@@ -9,6 +9,7 @@ import { tmpdir } from 'node:os';
 import { join, normalize, extname, resolve, sep } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { profile, shelf, explain } from '../server/handlers.js';
+import { SHELVES } from '../server/prompt.js';
 
 const PUBLIC = resolve(fileURLToPath(new URL('../public', import.meta.url)));
 const TYPES = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.json': 'application/json', '.svg': 'image/svg+xml', '.png': 'image/png', '.ico': 'image/x-icon' };
@@ -44,7 +45,7 @@ export function makeServer({ ask = claudeCLI, lookup } = {}) {
   return createServer(async (req, res) => {
     try {
       const url = new URL(req.url, 'http://localhost');
-      if (url.pathname === '/api/config') return json(res, 200, { passcodeRequired: false, mode: 'local-claude-code' });
+      if (url.pathname === '/api/config') return json(res, 200, { passcodeRequired: false, mode: 'local-claude-code', shelves: SHELVES.map(({ title, blurb }) => ({ title, blurb })) });
       if (url.pathname.startsWith('/api/')) {
         const fn = { '/api/profile': profile, '/api/shelf': shelf, '/api/explain': explain }[url.pathname.replace(/\/+$/, '')];
         if (!fn) return json(res, 404, { error: 'Not found' });
@@ -54,7 +55,7 @@ export function makeServer({ ask = claudeCLI, lookup } = {}) {
         let body; try { body = JSON.parse(raw || '{}'); } catch { return json(res, 400, { error: 'Invalid JSON' }); }
         running++;
         const t0 = Date.now();
-        try { const out = await fn(body, ctx); console.log(`${url.pathname}${body.shelf !== undefined ? ' #' + body.shelf : ''}: ${((Date.now() - t0) / 1000).toFixed(1)}s total`); return json(res, 200, out); }
+        try { const out = await fn(body, ctx); console.log(`${url.pathname}${body.seed ? ' (more like)' : body.shelf !== undefined ? ' #' + body.shelf : ''}: ${((Date.now() - t0) / 1000).toFixed(1)}s total`); return json(res, 200, out); }
         catch (e) { console.error(e.message); return json(res, e.status || 500, { error: e.message || 'Server error' }); }
         finally { running--; }
       }

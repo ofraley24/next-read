@@ -22,12 +22,16 @@
   <div class="panel">
     <h3>Your library</h3>
     <div class="stat" id="stats"></div>
+    <div class="hint" id="libmsg" hidden></div>
     <details style="margin-top:10px"><summary>Rated books</summary><div id="rated" style="margin-top:8px"></div></details>
   </div>
   <div class="panel">
     <h3>Your taste, as I read it</h3>
-    <p class="mini"><span>Editable. Whatever you write here steers every pick.</span></p>
-    <textarea id="profile" placeholder="Generated from your library when you build the shop…"></textarea>
+    <p class="mini"><span>Each line is a claim about you. Edit, delete or add; every shelf follows what is written here.</span></p>
+    <div id="statements"></div>
+    <div class="steer"><input type="text" id="newstmt" placeholder="Add one, e.g. I dislike padded middles"><button id="addstmt">Add</button></div>
+    <div class="hint" id="stale" hidden>Your library has changed since these were written. Re-read it to pick up new notes and books.</div>
+    <div class="acts"><button id="reprofile">Re-read my library</button></div>
   </div>
   <div class="panel">
     <h3>Shortlist <span class="tag-s" id="slc">0</span></h3>
@@ -39,6 +43,7 @@
   <div class="panel">
     <h3 style="font-size:18px">Steer the shop</h3>
     <div class="chips" id="chips"></div>
+    <div class="filters" id="filters"></div>
     <div class="steer">
       <input type="text" id="free" placeholder="Anything else? e.g. “like Excession but with more science”">
       <button class="primary" id="go">Build my shop</button>

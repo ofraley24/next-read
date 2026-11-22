@@ -1,5 +1,5 @@
 import { claude, parseJSON } from './anthropic.js';
-import { profilePrompt, shelfPrompt, explainPrompt, SHELVES } from './prompt.js';
+import { profilePrompt, shelfPrompt, explainPrompt, SHELVES, seedSpec } from './prompt.js';
 import { lookup, norm } from './covers.js';
 
 export const key = b => `${norm(b.title)}|${norm(b.author)}`;
@@ -22,36 +22,54 @@ async function pool(items, n, fn) {
   return out;
 }
 
-// One shelf of picks: short fields only (title, author, year, pitch), verified and given covers.
+const normKind = k => /^non/i.test(String(k || '')) ? 'non-fiction' : /fic/i.test(String(k || '')) ? 'fiction' : null;
+const normPages = p => { const n = parseInt(p, 10); return n > 0 && n < 5000 ? n : null; };
+
+// One shelf of picks: short fields only (title, author, year, pitch, kind, pages), verified and given covers.
+// body.shelf picks a shelf by index; body.seed ({title, author}) builds a "more like this" shelf instead.
+// body.exclude lists books already shown, so "show more" returns new ones.
 export async function shelf(body, ctx = {}) {
   const { library } = body;
-  const idx = Number(body.shelf);
   if (!Array.isArray(library) || !library.length) throw badRequest('library is required');
-  if (!Number.isInteger(idx) || idx < 0 || idx >= SHELVES.length) throw badRequest('unknown shelf');
-  const spec = SHELVES[idx];
+  let spec;
+  if (body.seed !== undefined) {
+    if (!body.seed || !body.seed.title || !body.seed.author) throw badRequest('seed needs a title and author');
+    spec = seedSpec(body.seed);
+  } else {
+    const idx = Number(body.shelf);
+    if (!Number.isInteger(idx) || idx < 0 || idx >= SHELVES.length) throw badRequest('unknown shelf');
+    spec = SHELVES[idx];
+  }
   const ask = ctx.claude || claude, find = ctx.lookup || lookup;
 
-  const books = parseJSON(await ask({ apiKey: ctx.apiKey, model: ctx.model, prompt: shelfPrompt(body, idx), maxTokens: 2500 }));
+  const books = parseJSON(await ask({ apiKey: ctx.apiKey, model: ctx.model, prompt: shelfPrompt(body, spec), maxTokens: 3000 }));
   if (!Array.isArray(books)) throw new Error('Model returned an unexpected shape');
 
   const owned = new Set(library.map(key));
   const toRead = new Set(library.filter(b => b.shelf === 'to-read').map(key));
   const isbns = new Map(library.filter(b => b.isbn).map(b => [key(b), b.isbn]));   // exact-edition lookups for books already in the library
-  const dismissed = new Set(body.dismissedKeys || []);
+  const skip = new Set([...(body.dismissedKeys || []), ...(body.exclude || []).map(key)]);
   const seen = new Set();
   let dropped = 0;
 
-  const checked = await pool(books.filter(b => b && b.title && b.author).slice(0, spec.count + 2), 6, async b => {
-    const k = key(b);
-    if (dismissed.has(k) || seen.has(k)) return null;
+  const checked = await pool(books.filter(b => b && b.title && b.author).slice(0, spec.count + 4), 6, async b => {
+    const k = key(b), onList = toRead.has(k);
+    if (skip.has(k) || seen.has(k)) return null;
     seen.add(k);
-    if (spec.fromToRead && !toRead.has(k)) { dropped++; return null; }    // must really be on their list
-    if (!spec.fromToRead && owned.has(k)) { dropped++; return null; }     // never re-suggest owned books
+    if (spec.fromToRead && !onList) { dropped++; return null; }                                  // must really be on their list
+    if (!spec.fromToRead && owned.has(k) && !(spec.mixToRead && onList)) { dropped++; return null; }   // never re-suggest owned books
     const info = await find(b.title, b.author, { isbn: isbns.get(k), googleKey: ctx.googleKey });
-    if (!spec.fromToRead && !info.verified) { dropped++; return null; }   // not in any catalogue: likely invented
-    return { title: b.title, author: b.author, year: b.year, pitch: b.pitch, cover: info.cover || null, coverSource: info.source };
+    if (!spec.fromToRead && !onList && !info.verified) { dropped++; return null; }               // not in any catalogue: likely invented
+    return { title: b.title, author: b.author, year: b.year, pitch: b.pitch, kind: normKind(b.kind), pages: normPages(b.pages), cover: info.cover || null, coverSource: info.source };
   });
-  const result = checked.filter(Boolean);
+  // Variety: one book per author on shelves of new books (the to-read shelf may repeat an author).
+  const authors = new Set();
+  const result = checked.filter(Boolean).filter(b => {
+    if (spec.fromToRead) return true;
+    const a = norm(b.author);
+    if (authors.has(a)) return false;
+    authors.add(a); return true;
+  }).slice(0, spec.count);
   // One more try for any book that has no cover yet (a miss is never cached, so this really asks again).
   await pool(result.filter(b => !b.cover), 2, async b => {
     const again = await find(b.title, b.author, { isbn: isbns.get(key(b)), googleKey: ctx.googleKey });

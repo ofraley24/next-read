@@ -1,6 +1,9 @@
 // Cloudflare Worker entry: runs /api/* here, serves everything else from the static assets in public/.
 import { handle } from '../server/http.js';
 import { profile, shelf, explain } from '../server/handlers.js';
+import { SHELVES } from '../server/prompt.js';
+
+const shelfList = SHELVES.map(({ title, blurb }) => ({ title, blurb }));
 
 const routes = { '/api/profile': profile, '/api/shelf': shelf, '/api/explain': explain };
 
@@ -8,7 +11,7 @@ export default {
   async fetch(request, env) {
     const { pathname } = new URL(request.url);
     if (pathname === '/api/config' && request.method === 'GET') {
-      return new Response(JSON.stringify({ passcodeRequired: true }), { headers: { 'content-type': 'application/json', 'cache-control': 'no-store' } });
+      return new Response(JSON.stringify({ passcodeRequired: true, shelves: shelfList }), { headers: { 'content-type': 'application/json', 'cache-control': 'no-store' } });
     }
     if (pathname.startsWith('/api/')) {
       const fn = routes[pathname.replace(/\/+$/, '')];

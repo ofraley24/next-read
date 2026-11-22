@@ -60,3 +60,24 @@ button.primary[disabled]{opacity:.5;cursor:wait}
 details summary{cursor:pointer;color:var(--mute);font-size:13px}
 .sl{padding-left:18px;margin:6px 0}
 .sl li{margin:3px 0;font-size:14px}
+
+.hint{font-size:12.5px;color:var(--accent2);margin:8px 0}
+.stmt{display:flex;gap:6px;margin:0 0 6px}
+.stmt input{flex:1;min-width:0;font-size:13.5px}
+.x{padding:0 9px;line-height:1.6;color:var(--mute)}
+.filters{display:flex;flex-wrap:wrap;gap:8px;margin:2px 0 4px}
+.filters select{background:var(--paper);color:var(--ink);border:1px solid var(--line);border-radius:8px;padding:5px 8px;font:inherit;font-size:13px}
+.shelf h2{display:flex;align-items:center;gap:10px}
+.shelf h2 .tag-s{font-family:Inter,sans-serif;font-weight:400}
+.shelf .foot{margin-top:12px}
+.tile .tm{font-size:11.5px;color:var(--mute);opacity:.8;margin-top:-3px}
+.skel.faint{opacity:.35;animation:none}
+.sl li{cursor:pointer;display:flex;gap:6px;align-items:baseline}
+.sl li span.grow{flex:1}
+.reasons{margin-top:12px}
+.rchips{display:flex;flex-wrap:wrap;gap:6px;margin:8px 0}
+.rchip{background:var(--chip);border-radius:99px;padding:3px 10px;font-size:12.5px;cursor:pointer;user-select:none}
+.rchip.on{background:var(--accent);color:#fff}
+.stars{display:flex;gap:2px;margin:6px 0}
+.stars button{border:0;background:none;font-size:24px;padding:0 3px;color:var(--line)}
+.stars button.on{color:#d49a1f}
