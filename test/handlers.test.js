@@ -65,3 +65,17 @@ test('http wrapper fails closed and checks the passcode', async () => {
   const bad = await handle({ request: req({ 'x-passcode': 'pw' }), env }, async () => { throw Object.assign(new Error('boom'), { status: 400 }); });
   assert.strictEqual(bad.status, 400);
 });
+
+import worker from '../worker/index.js';
+
+test('worker routes /api/*, rejects other methods, and serves assets for everything else', async () => {
+  const assets = { fetch: async r => new Response('asset:' + new URL(r.url).pathname) };
+  const e = { ASSETS: assets };                                  // no secrets configured -> API fails closed
+  const call = (path, method = 'POST') => worker.fetch(new Request('https://x.test' + path, { method, body: method === 'POST' ? '{}' : undefined }), e);
+  assert.strictEqual((await call('/api/profile')).status, 503);
+  assert.strictEqual((await call('/api/recommend')).status, 503);
+  assert.strictEqual((await call('/api/profile', 'GET')).status, 405);
+  assert.strictEqual((await call('/api/nope')).status, 404);
+  assert.strictEqual(await (await call('/', 'GET')).text(), 'asset:/');
+  assert.strictEqual(await (await call('/app.js', 'GET')).text(), 'asset:/app.js');
+});
