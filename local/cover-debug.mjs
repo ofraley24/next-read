@@ -4,4 +4,4 @@
 import { diagnose } from '../server/covers.js';
 const [title, author, isbn] = process.argv.slice(2);
 if (!title || !author) { console.error('Usage: npm run cover-debug -- "<title>" "<author>" [isbn]'); process.exit(1); }
-console.log(await diagnose(title, author, isbn));
+console.log(await diagnose(title, author, isbn, { googleKey: process.env.GOOGLE_BOOKS_API_KEY }));

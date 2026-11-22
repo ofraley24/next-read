@@ -3,7 +3,7 @@ import assert from 'node:assert';
 import { lookup, cleanTitle } from '../server/covers.js';
 
 const res = (status, body) => ({ ok: status >= 200 && status < 300, status, json: async () => body });
-const noWait = { sleep: async () => {} };
+const noWait = { sleep: async () => {}, get breaker() { return new Map(); } };   // fresh 429-pause list per lookup, so tests can't affect each other
 const quiet = fn => async () => { const w = console.warn; console.warn = () => {}; try { await fn(); } finally { console.warn = w; } };
 const ol = (title, author, cover_i) => ({ docs: [{ title, author_name: [author], cover_i }] });
 
@@ -19,9 +19,9 @@ test('series suffix is not sent to the catalogue and the cover is found', quiet(
   assert.ok(!urls[0].includes('%23') && !urls[0].includes('%2C+%23') && !decodeURIComponent(urls[0]).includes('Children of Time'));
 }));
 
-test('throttling (429) and server errors are retried, not treated as "no cover"', quiet(async () => {
+test('server errors and timeouts are retried, not treated as "no cover"', quiet(async () => {
   let n = 0;
-  const fetchImpl = async () => (++n < 3 ? res(n === 1 ? 429 : 503, {}) : res(200, ol('Retry Book', 'Some Author', 7)));
+  const fetchImpl = async () => (++n < 3 ? res(n === 1 ? 500 : 503, {}) : res(200, ol('Retry Book', 'Some Author', 7)));
   const out = await lookup('Retry Book', 'Some Author', { fetchImpl, ...noWait });
   assert.strictEqual(n, 3);
   assert.strictEqual(out.source, 'openlibrary');
@@ -56,7 +56,7 @@ test('successful lookups are cached; failures are not', quiet(async () => {
 
 test('gives up after three tries and reports not verified', quiet(async () => {
   let n = 0;
-  const fetchImpl = async () => { n++; return res(429, {}); };
+  const fetchImpl = async () => { n++; return res(503, {}); };
   const out = await lookup('Throttled Book', 'Tee Author', { fetchImpl, ...noWait });
   assert.strictEqual(out.verified, false);
   assert.ok(n >= 3);
@@ -118,3 +118,45 @@ test('diagnose explains every query and what matched', async () => {
   assert.match(text, /title:match  author:no  cover:NO/);
   assert.match(text, /=> 0 accepted/);
 });
+
+
+test('after a 429 the host is left alone (no retries, no further queries) and the other source still works', quiet(async () => {
+  const breaker = new Map();   // shared across lookups, like the real process
+  const hits = { google: 0, ol: 0 };
+  const fetchImpl = async u => {
+    if (u.includes('googleapis')) { hits.google++; return res(429, {}); }
+    hits.ol++; return res(200, { docs: [] });
+  };
+  const a = await lookup('Rate Limited One', 'Ann Author', { fetchImpl, sleep: async () => {}, breaker });
+  const googleAfterFirst = hits.google;
+  assert.strictEqual(googleAfterFirst, 1, 'one 429 only: no retries');
+  assert.strictEqual(a.verified, false);
+  await lookup('Rate Limited Two', 'Bea Author', { fetchImpl, sleep: async () => {}, breaker });
+  await lookup('Rate Limited Three', 'Cee Author', { fetchImpl, sleep: async () => {}, breaker });
+  assert.strictEqual(hits.google, googleAfterFirst, 'Google is not asked again while paused');
+  assert.ok(hits.ol > 3, 'Open Library keeps being asked');
+}));
+
+test('Retry-After sets how long the host is paused, and the pause ends', quiet(async () => {
+  const breaker = new Map();
+  let google = 0;
+  const fetchImpl = async u => u.includes('googleapis') ? (google++, { ok: false, status: 429, headers: { get: () => '30' }, json: async () => ({}) }) : res(200, { docs: [] });
+  const before = Date.now();
+  await lookup('Pause One', 'Dee Author', { fetchImpl, sleep: async () => {}, breaker });
+  const until = breaker.get('www.googleapis.com');
+  assert.ok(until - before >= 29_000 && until - before <= 31_500, `paused for ${(until - before) / 1000}s`);
+  breaker.set('www.googleapis.com', Date.now() - 1);   // pause over
+  await lookup('Pause Two', 'Eee Author', { fetchImpl, sleep: async () => {}, breaker });
+  assert.strictEqual(google, 2);
+}));
+
+test('Google Books API key is added to Google requests, and never shown in diagnose output', quiet(async () => {
+  const urls = [];
+  const fetchImpl = async u => { urls.push(u); return res(200, { docs: [], items: [] }); };
+  await lookup('Keyed Book', 'Fay Author', { fetchImpl, googleKey: 'SECRET123', ...noWait });
+  const g = urls.filter(u => u.includes('googleapis'));
+  assert.ok(g.length > 0 && g.every(u => u.includes('&key=SECRET123')));
+  assert.ok(!urls.filter(u => u.includes('openlibrary')).some(u => u.includes('SECRET123')), 'key must not go to other hosts');
+  const text = await diagnose('Keyed Book', 'Fay Author', undefined, { fetchImpl, googleKey: 'SECRET123' });
+  assert.ok(!text.includes('SECRET123'));
+}));

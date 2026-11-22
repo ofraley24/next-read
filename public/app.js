@@ -8,7 +8,7 @@ const key = b => `${norm(b.title)}|${norm(b.author)}`;
 const hue = s => { let h = 0; for (const c of s) h = (h*31 + c.charCodeAt(0)) >>> 0; return COLORS[h % COLORS.length]; };
 
 const KEY = 'nextread.v1';
-let state = { library: [], profile: '', shelves: [], pinned: {}, dismissed: {}, chips: {}, passcode: '' };
+let state = { library: [], profile: '', shelves: [], pinned: {}, dismissed: {}, chips: {}, passcode: '', covers: {} };
 try { Object.assign(state, JSON.parse(localStorage.getItem(KEY) || '{}')); } catch {}
 const save = () => { try { localStorage.setItem(KEY, JSON.stringify(state)); } catch {} };
 
@@ -84,7 +84,7 @@ function coverHTML(b, big) {
   return `<div class="cover ${big ? 'big' : ''}" style="background:linear-gradient(155deg,${c},${c2})">
     ${state.pinned[key(b)] ? '<span class="badge">★ pinned</span>' : ''}
     <div class="ct">${esc(b.title)}</div><div class="ca">${esc(b.author)}</div>
-    ${b.cover ? `<img src="${esc(b.cover)}" alt="" loading="lazy" referrerpolicy="no-referrer">` : ''}</div>`;
+    ${(state.covers[key(b)] || b.cover) ? `<img src="${esc(state.covers[key(b)] || b.cover)}" alt="" loading="lazy" referrerpolicy="no-referrer">` : ''}</div>`;
 }
 function hideBrokenCovers(root) {
   root.querySelectorAll('.cover img').forEach(img => {
@@ -105,14 +105,40 @@ function sheetHTML(b) {
     <div class="links" style="margin-top:8px">${(b.themes || []).map(t => `<span class="tag-s">${esc(t)}</span>`).join('')}</div>
     ${b.caution ? `<div class="caution" style="margin-top:10px">Might not land: ${esc(b.caution)}</div>` : ''}`
     : `<div class="why"><i>${b.explainError ? esc(b.explainError) : 'Working out why this fits you…'}</i></div>${b.explainError ? '<div class="acts"><button data-a="retry">Try again</button></div>' : ''}`;
+  const setCoverUI = `<details style="margin-top:10px"><summary>Set cover image</summary><div style="margin-top:8px"><input type="text" id="coverurl" placeholder="Paste an image address (https://…)">
+    <div class="acts"><button data-a="savecover">Use this address</button><label class="tag link-label">or choose a file<input id="coverfile" type="file" accept="image/*" hidden></label>${state.covers[k] ? '<button data-a="clearcover">Remove custom cover</button>' : ''}</div></div></details>`;
   return `${coverHTML(b, true)}<div><h2>${esc(b.title)}</h2><div class="by">${esc(b.author)}${b.year ? ' · ' + esc(b.year) : ''}</div>${b.pitch && !b.why ? `<div class="why">${esc(b.pitch)}</div>` : ''}${detail}
-    <div class="acts"><button class="primary" data-a="pin">${pinned ? 'Unpin' : 'Pin to shortlist'}</button><button data-a="more">More like this</button><button data-a="no">Not for me</button><button data-a="close">Close</button></div></div>`;
+    <div class="acts"><button class="primary" data-a="pin">${pinned ? 'Unpin' : 'Pin to shortlist'}</button><button data-a="more">More like this</button><button data-a="no">Not for me</button><button data-a="close">Close</button></div>${setCoverUI}</div>`;
+}
+function setCover(k, src) {
+  if (src) state.covers[k] = src; else delete state.covers[k];
+  save(); renderShelves(); renderShort();
+  const b = find(k); if (b && openKey === k) { $('sheet').innerHTML = sheetHTML(b); bindSheet(k); }
+}
+// Read a local image, shrink it so it fits comfortably in localStorage, and use it as the cover.
+function coverFromFile(file, k) {
+  const fr = new FileReader();
+  fr.onload = () => {
+    const img = new Image();
+    img.onload = () => {
+      const scale = Math.min(1, 400 / img.height), c = document.createElement('canvas');
+      c.width = Math.round(img.width * scale); c.height = Math.round(img.height * scale);
+      c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+      setCover(k, c.toDataURL('image/jpeg', 0.85));
+    };
+    img.onerror = () => { $('err').textContent = 'That file is not an image I can read.'; };
+    img.src = fr.result;
+  };
+  fr.readAsDataURL(file);
 }
 function bindSheet(k) {
   hideBrokenCovers($('sheet'));
+  const cf = $('coverfile'); if (cf) cf.onchange = () => { if (cf.files[0]) coverFromFile(cf.files[0], k); };
   $('sheet').querySelectorAll('button').forEach(btn => btn.onclick = () => {
     const a = btn.dataset.a, b = find(k);
     if (a === 'retry') return explainBook(k);
+    if (a === 'savecover') { const u = ($('coverurl').value || '').trim(); return /^https?:\/\//i.test(u) ? setCover(k, u) : ($('coverurl').placeholder = 'That needs to start with https://'); }
+    if (a === 'clearcover') return setCover(k, null);
     if (!b) return;
     if (a === 'pin') { if (state.pinned[k]) delete state.pinned[k]; else state.pinned[k] = b; }
     if (a === 'no') { state.dismissed[k] = { title: b.title, author: b.author }; delete state.pinned[k]; state.shelves.forEach(s => s.books = s.books.filter(x => key(x) !== k)); }

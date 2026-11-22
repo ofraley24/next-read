@@ -39,7 +39,7 @@ export function claudeCLI({ prompt }, { bin = process.env.CLAUDE_BIN || 'claude'
 }
 
 export function makeServer({ ask = claudeCLI, lookup } = {}) {
-  const ctx = { claude: ask, ...(lookup ? { lookup } : {}) };
+  const ctx = { claude: ask, googleKey: process.env.GOOGLE_BOOKS_API_KEY || undefined, ...(lookup ? { lookup } : {}) };
   let running = 0; // at most MAX_PARALLEL Claude calls at once (the shelves load in parallel)
   return createServer(async (req, res) => {
     try {

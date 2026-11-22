@@ -17,7 +17,7 @@ export async function handle({ request, env }, fn) {
   let body;
   try { body = await request.json(); } catch { return json({ error: 'Invalid JSON' }, 400); }
   try {
-    return json(await fn(body || {}, { apiKey: env.ANTHROPIC_API_KEY, model: env.CLAUDE_MODEL || undefined }));
+    return json(await fn(body || {}, { apiKey: env.ANTHROPIC_API_KEY, model: env.CLAUDE_MODEL || undefined, googleKey: env.GOOGLE_BOOKS_API_KEY || undefined }));
   } catch (e) {
     console.error(e);
     return json({ error: e.message || 'Server error' }, e.status || 500);

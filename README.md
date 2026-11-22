@@ -75,6 +75,14 @@ Time is dominated by how many words Claude has to write, so shelf size is the ma
 
 Covers are looked up by exact ISBN first (taken from your Goodreads export, so re-import the CSV after pulling this change), then by title and author with several variants (series suffix removed, accents folded, title only), in Open Library then Google Books. Brand-new or self-published books may simply not be in either; those keep the generated cover.
 
+### Google Books rate limits (HTTP 429)
+
+Without an API key Google Books limits requests per IP address and often refuses them. After a 429 the app stops asking that site for the time it says (default 60s) instead of retrying, and logs a line saying so. A free key gives a much higher limit: in Google Cloud Console enable the **Books API**, create an **API key**, then run `GOOGLE_BOOKS_API_KEY=your-key npm run local` (on Cloudflare, add it as a secret named `GOOGLE_BOOKS_API_KEY`). The key is only ever sent to Google and never printed by `cover-debug`.
+
+### Set a cover by hand
+
+Open any book and use **Set cover image**: paste an image address, or choose a file (it is shrunk and saved in your browser). Useful for new or self-published books that no free catalogue has. Stored per book in this browser; **Remove custom cover** puts the automatic one back.
+
 ## Tests
 
 ```bash

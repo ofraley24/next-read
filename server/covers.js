@@ -29,9 +29,13 @@ async function gate(fn) {
 }
 const realSleep = ms => new Promise(r => setTimeout(r, ms));
 
-async function getJSON(url, { fetchImpl = fetch, sleep = realSleep, tries = 3, timeoutMs = 8000 } = {}) {
+// After a 429 from a host we stop asking it for a while: retrying a rate limit only extends it.
+const globalBreaker = new Map();   // host -> timestamp until which requests to it are skipped
+
+async function getJSON(url, { fetchImpl = fetch, sleep = realSleep, tries = 3, timeoutMs = 8000, breaker = globalBreaker } = {}) {
   const host = new URL(url).hostname;
   for (let i = 0; i < tries; i++) {
+    if ((breaker.get(host) || 0) > Date.now()) return null;   // paused after a 429
     let why;
     try {
       // The timeout starts only once a slot is free, so time spent queueing never counts against the request.
@@ -40,12 +44,19 @@ async function getJSON(url, { fetchImpl = fetch, sleep = realSleep, tries = 3, t
         const timer = setTimeout(() => ctl.abort(), timeoutMs);
         try {
           const r = await fetchImpl(url, { signal: ctl.signal, headers: { 'user-agent': 'next-read/1.0 (personal project)' } });
-          return { status: r.status, body: r.ok ? await r.json() : null };
+          const ra = Number(r.headers && r.headers.get && r.headers.get('retry-after'));
+          return { status: r.status, retryAfter: ra, body: r.ok ? await r.json() : null };
         } finally { clearTimeout(timer); }
       });
       if (out.body !== null) return out.body;
+      if (out.status === 429) {
+        const secs = Math.min(Math.max(out.retryAfter || 60, 10), 300);
+        if (!(breaker.get(host) > Date.now())) console.warn(`lookup: ${host} is rate-limiting us (HTTP 429); pausing it for ${secs}s${host.includes('google') ? '. A free GOOGLE_BOOKS_API_KEY avoids this' : ''}`);
+        breaker.set(host, Date.now() + secs * 1000);
+        return null;
+      }
       why = `HTTP ${out.status}`;
-      if (out.status < 500 && out.status !== 429) { console.warn(`lookup: ${host} ${why}`); return null; }   // a real "no", don't retry
+      if (out.status < 500) { console.warn(`lookup: ${host} ${why}`); return null; }   // a real "no", don't retry
     } catch (e) { why = e && e.name === 'AbortError' ? 'timeout' : String(e && e.message || e); }
     if (i < tries - 1) await sleep(500 * 2 ** i);   // 0.5s, 1s
     else console.warn(`lookup: ${host} gave up after ${tries} tries (${why})`);
@@ -61,7 +72,7 @@ const cleanIsbn = s => String(s || '').replace(/[^0-9Xx]/g, '').toUpperCase();
 
 // The catalogue queries to try, in order. Each plan says where to ask and how to read the answer.
 // byIsbn plans identify the exact edition, so their results are accepted without title/author checks.
-function plans(title, author, isbn) {
+function plans(title, author, isbn, googleKey) {
   const t = cleanTitle(title), m = mainTitle(title), a = fold(author);
   const ol = (params, extra = {}) => ({
     source: 'openlibrary', ...extra,
@@ -70,7 +81,7 @@ function plans(title, author, isbn) {
   });
   const gb = (q, extra = {}) => ({
     source: 'googlebooks', ...extra,
-    url: `https://www.googleapis.com/books/v1/volumes?q=${encodeURIComponent(q).replace(/%2B/g, '+')}&maxResults=20`,
+    url: `https://www.googleapis.com/books/v1/volumes?q=${encodeURIComponent(q).replace(/%2B/g, '+')}&maxResults=20${googleKey ? `&key=${encodeURIComponent(googleKey)}` : ''}`,
     items: j => ((j && j.items) || []).map(i => i.volumeInfo || {}).map(v => {
       const img = v.imageLinks && (v.imageLinks.thumbnail || v.imageLinks.smallThumbnail);
       return { title: v.title, authors: v.authors, cover: img ? img.replace(/^http:/, 'https:') : null };
@@ -99,7 +110,7 @@ async function lookup(title, author, opts = {}) {
   const k = `${norm(title)}|${norm(author)}`;
   if (cache.has(k)) return cache.get(k);
   let best = null;
-  for (const plan of plans(title, author, opts.isbn)) {
+  for (const plan of plans(title, author, opts.isbn, opts.googleKey)) {
     const data = await getJSON(plan.url, opts);
     const hits = plan.items(data).filter(it => accept(plan, it, title, author));
     const withCover = hits.find(h => h.cover);
@@ -113,10 +124,10 @@ async function lookup(title, author, opts = {}) {
 
 // Human-readable trace of every query for one book: what was asked, what came back, what matched.
 // Used by `npm run cover-debug`; makes "why is this cover missing?" answerable.
-async function diagnose(title, author, isbn, { fetchImpl = fetch } = {}) {
+async function diagnose(title, author, isbn, { fetchImpl = fetch, googleKey } = {}) {
   const lines = [`Book: "${title}" by ${author}${isbn ? `  (ISBN ${isbn})` : ''}`, `Cleaned title: "${cleanTitle(title)}"   Main title: "${mainTitle(title)}"   Author folded: "${fold(author)}"`, ''];
-  for (const plan of plans(title, author, isbn)) {
-    lines.push(`[${plan.source}${plan.byIsbn ? ', by ISBN' : ''}] ${plan.url}`);
+  for (const plan of plans(title, author, isbn, googleKey)) {
+    lines.push(`[${plan.source}${plan.byIsbn ? ', by ISBN' : ''}] ${plan.url.replace(/([?&]key=)[^&]+/, '$1…')}`);   // never print the key
     let r;
     try { r = await fetchImpl(plan.url, { headers: { 'user-agent': 'next-read/1.0 (personal project)' } }); }
     catch (e) { lines.push(`   request failed: ${e.message}`, ''); continue; }

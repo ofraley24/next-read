@@ -47,14 +47,14 @@ export async function shelf(body, ctx = {}) {
     seen.add(k);
     if (spec.fromToRead && !toRead.has(k)) { dropped++; return null; }    // must really be on their list
     if (!spec.fromToRead && owned.has(k)) { dropped++; return null; }     // never re-suggest owned books
-    const info = await find(b.title, b.author, { isbn: isbns.get(k) });
+    const info = await find(b.title, b.author, { isbn: isbns.get(k), googleKey: ctx.googleKey });
     if (!spec.fromToRead && !info.verified) { dropped++; return null; }   // not in any catalogue: likely invented
     return { title: b.title, author: b.author, year: b.year, pitch: b.pitch, cover: info.cover || null, coverSource: info.source };
   });
   const result = checked.filter(Boolean);
   // One more try for any book that has no cover yet (a miss is never cached, so this really asks again).
   await pool(result.filter(b => !b.cover), 2, async b => {
-    const again = await find(b.title, b.author, { isbn: isbns.get(key(b)) });
+    const again = await find(b.title, b.author, { isbn: isbns.get(key(b)), googleKey: ctx.googleKey });
     if (again.cover) { b.cover = again.cover; b.coverSource = again.source; }
   });
   return { shelf: spec.title, blurb: spec.blurb, books: result, dropped };
