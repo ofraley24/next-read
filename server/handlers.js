@@ -1,5 +1,5 @@
 import { claude, parseJSON } from './anthropic.js';
-import { profilePrompt, shelfPrompt, explainPrompt, SHELVES, seedSpec } from './prompt.js';
+import { profilePrompt, shelfPrompt, explainPrompt, askPrompt, SHELVES, seedSpec } from './prompt.js';
 import { lookup, norm } from './covers.js';
 
 export const key = b => `${norm(b.title)}|${norm(b.author)}`;
@@ -92,4 +92,14 @@ export async function explain(body, ctx = {}) {
     themes: (out.themes || []).slice(0, 4).map(String),
     caution: String(out.caution || ''),
   };
+}
+
+// A free-form question about the shop. Answers in plain text; nothing on the shelves changes.
+export async function ask(body, ctx = {}) {
+  const { library, question } = body;
+  if (!Array.isArray(library) || !library.length) throw badRequest('library is required');
+  if (typeof question !== 'string' || !question.trim()) throw badRequest('question is required');
+  const send = ctx.claude || claude;
+  const text = await send({ apiKey: ctx.apiKey, model: ctx.model, prompt: askPrompt({ ...body, question: question.trim(), shelves: (body.shelves || []).slice(0, 14) }), maxTokens: 800 });
+  return { answer: text.trim() };
 }

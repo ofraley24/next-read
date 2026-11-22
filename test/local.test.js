@@ -35,6 +35,7 @@ test('local server: config, static files, no path traversal, no passcode needed'
 test('local server: profile, shelf and explain use the injected claude (no network)', async () => {
   const lib = [{ title: 'Excession', author: 'Iain M. Banks', shelf: 'read', rating: 5 }, { title: 'Anathem', author: 'Neal Stephenson', shelf: 'to-read', rating: 0 }];
   const ask = async ({ prompt }) => prompt.includes('taste analyst') ? '  You like big ideas.  '
+    : prompt.includes('asking the shop a question') ? 'It fits.'
     : prompt.includes('Explain why') ? JSON.stringify({ why: 'Because.', links: ['Excession'], themes: ['x'], caution: 'c' })
     : JSON.stringify([{ title: 'Diaspora', author: 'Greg Egan', year: '1997', pitch: 'p' }]);
   const lookup = async () => ({ verified: true, cover: 'https://example.test/c.jpg', source: 'test' });
@@ -45,6 +46,9 @@ test('local server: profile, shelf and explain use the injected claude (no netwo
     assert.strictEqual(out.books[0].cover, 'https://example.test/c.jpg');
     const ex = await (await post(base + '/api/explain', { library: lib, profile: 'x', book: { title: 'Diaspora', author: 'Greg Egan' } })).json();
     assert.deepStrictEqual(ex.links, ['Excession']);
+    const ans = await (await post(base + '/api/ask', { library: lib, question: 'does it fit?' })).json();
+    assert.ok(typeof ans.answer === 'string' && ans.answer.length);
+    assert.strictEqual((await post(base + '/api/ask', { library: lib })).status, 400);
     assert.strictEqual((await post(base + '/api/profile', { library: [] })).status, 400);
     assert.strictEqual((await fetch(base + '/api/shelf')).status, 405);
     assert.strictEqual((await post(base + '/api/recommend', {})).status, 404);

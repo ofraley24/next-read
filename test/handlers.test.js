@@ -1,8 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert';
 import { titleMatches, authorMatches } from '../server/covers.js';
-import { shelf, explain, profile } from '../server/handlers.js';
-import { SHELVES, shelfPrompt, profilePrompt, libraryText } from '../server/prompt.js';
+import { shelf, explain, profile, ask } from '../server/handlers.js';
+import { SHELVES, shelfPrompt, profilePrompt, libraryText, askPrompt } from '../server/prompt.js';
 import { parseJSON } from '../server/anthropic.js';
 import { handle } from '../server/http.js';
 
@@ -96,6 +96,7 @@ test('worker routes /api/*, rejects other methods, and serves assets for everyth
   assert.strictEqual((await call('/api/profile')).status, 503);
   assert.strictEqual((await call('/api/shelf')).status, 503);
   assert.strictEqual((await call('/api/explain')).status, 503);
+  assert.strictEqual((await call('/api/ask')).status, 503);
   assert.strictEqual((await call('/api/recommend')).status, 404);
   assert.strictEqual((await call('/api/profile', 'GET')).status, 405);
   assert.strictEqual((await call('/api/nope')).status, 404);
@@ -183,4 +184,22 @@ test('worker config lists the shelves for the front end', async () => {
   const cfg = await r.json();
   assert.strictEqual(cfg.passcodeRequired, true);
   assert.strictEqual(cfg.shelves.length, SHELVES.length);
+});
+
+test('ask: the prompt carries the library, notes, statements, shelf books and earlier turns; the answer is plain text', async () => {
+  let prompt = '';
+  const body = { library: [{ title: 'Excession', author: 'Iain M. Banks', shelf: 'read', rating: 5, notes: 'loved the voice' }], profile: '- You like ideas', question: ' Does Diaspora fit me? ',
+    shelves: [{ shelf: 'Closest fit', books: [{ title: 'Diaspora', author: 'Greg Egan', year: '1997', pitch: 'minds as software' }] }],
+    pinned: ['P — Q'], dismissed: ['Foo — Bar (reason: too long)'], history: [{ q: 'earlier q', a: 'earlier a' }] };
+  const out = await ask(body, { claude: async ({ prompt: p }) => { prompt = p; return '  Yes, because of Excession.  '; } });
+  assert.deepStrictEqual(out, { answer: 'Yes, because of Excession.' });
+  for (const part of ['MY NOTES: loved the voice', '- You like ideas', 'Diaspora — Greg Egan (1997): minds as software', 'READER: earlier q', 'READER\'S QUESTION: Does Diaspora fit me?', 'Foo — Bar (reason: too long)']) assert.ok(prompt.includes(part), part);
+});
+
+test('ask rejects missing library or question', async () => {
+  const c = { claude: async () => 'x' };
+  await assert.rejects(() => ask({ library: [], question: 'hi' }, c), /library is required/);
+  await assert.rejects(() => ask({ library, question: '   ' }, c), /question is required/);
+  await assert.rejects(() => ask({ library }, c), /question is required/);
+  assert.match(askPrompt({ library, question: 'x'.repeat(5000) }), /READER'S QUESTION: x{1000}$/);   // long questions are cut
 });

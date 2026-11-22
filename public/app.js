@@ -16,7 +16,7 @@ const hue = s => { let h = 0; for (const c of s) h = (h*31 + c.charCodeAt(0)) >>
 
 const KEY = 'nextread.v1';
 let state = { library: [], profile: '', profileStale: false, shelves: [], pinned: {}, dismissed: {}, chips: {}, passcode: '', covers: {},
-  filters: { kind: 'any', length: 'any', era: 'any' }, tableSeen: [] };
+  filters: { kind: 'any', length: 'any', era: 'any' }, tableSeen: [], chat: [] };
 try { Object.assign(state, JSON.parse(localStorage.getItem(KEY) || '{}')); } catch {}
 // Shelves saved by the first version have no id: drop them (the shop restocks). A shelf that was loading when the page closed starts again.
 state.shelves = (state.shelves || []).filter(s => s.id).map(s => ({ ...s, status: s.status === 'loading' ? 'idle' : s.status }));
@@ -133,6 +133,35 @@ $('reprofile').onclick = async () => {
   catch (e) { $('err').textContent = e.message || 'Could not re-read your library.'; }
   b.disabled = false; b.textContent = 'Re-read my library';
 };
+
+/* ---------- Ask the shop ---------- */
+let asking = false;
+function renderChat() {
+  const t = $('thread');
+  t.innerHTML = state.chat.map(m => `<div class="msg q">${esc(m.q)}</div><div class="msg a ${m.a ? '' : 'pending'}">${esc(m.a || 'Thinking…')}</div>`).join('');
+  t.scrollTop = t.scrollHeight;
+  $('askacts').hidden = !state.chat.length;
+}
+async function askShop() {
+  const q = $('q').value.trim();
+  if (!q || asking || !state.library.length) return;
+  asking = true; $('ask').disabled = true; $('q').value = '';
+  const history = state.chat.filter(m => m.a).slice(-6);
+  const turn = { q, a: '' }; state.chat.push(turn); renderChat();
+  try {
+    const out = await api('ask', {
+      library: slimLibrary(), profile: state.profile, question: q, history,
+      shelves: state.shelves.filter(s => s.books.length).map(s => ({ shelf: s.shelf, books: s.books.slice(0, 25).map(b => ({ title: b.title, author: b.author, year: b.year, pitch: b.pitch })) })),
+      pinned: Object.values(state.pinned).map(b => `${b.title} — ${b.author}`),
+      dismissed: Object.values(state.dismissed).map(d => `${d.title} — ${d.author}${d.reason ? ` (reason: ${d.reason})` : ''}`),
+    });
+    turn.a = out.answer || 'No answer came back. Try asking again.';
+  } catch (e) { turn.a = `Could not answer: ${(e && e.message) || 'error'}`; }
+  state.chat = state.chat.slice(-20); save(); asking = false; $('ask').disabled = false; renderChat();
+}
+$('ask').onclick = askShop;
+$('q').onkeydown = e => { if (e.key === 'Enter') askShop(); };
+$('clearchat').onclick = () => { state.chat = []; save(); renderChat(); };
 
 /* ---------- Library, steering, filters ---------- */
 function renderLib() {
@@ -404,9 +433,10 @@ $('shortlist').addEventListener('click', e => {
 });
 
 function renderAll() {
-  renderLib(); renderChips(); renderFilters(); renderStatements(); draw(); renderShort();
+  renderLib(); renderChips(); renderFilters(); renderStatements(); draw(); renderShort(); renderChat();
   $('go').textContent = state.shelves.some(s => !s.seed) ? 'Refresh the shop' : 'Build my shop';
   $('go').disabled = !state.library.length;
+  $('ask').disabled = asking || !state.library.length;
 }
 
 $('go').onclick = async () => {

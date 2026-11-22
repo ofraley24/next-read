@@ -67,6 +67,8 @@ then `npm run dev` and open the printed URL.
 2. `/api/shelf`, one call per shelf: the front table (6 picks mixing your to-read pile with new books), the to-read pile, then themed shelves (closest fit, books that argue back, a different voice, stretch, short and dense, long-haul reads, recent arrivals, wildcards). Each returns only title, author, year, a hook, fiction/non-fiction and approximate pages; every title is checked against Open Library / Google Books and given a cover. The first three shelves load on Build; the rest are stocked as you scroll, so you only spend usage on shelves you reach.
 3. `/api/explain`: the full "why / links / themes / might not land" for one book, fetched when you click it and cached.
 
+- `/api/ask`: the "Ask the shop" box. A free-form question ("does X fit my taste?") answered from your library, notes, taste statements, pins, dismissals and whatever is on the shelves right now, with the last few turns for follow-ups. It never changes the shelves.
+
 Feedback loop and browsing:
 - **Not for me** asks why (optional chips and free text). The reason is sent with every later shelf request, so the shop learns from rejections.
 - **I've read this** takes a rating and a one-line note, updates your library (a to-read book moves to read) and marks the taste statements as stale.

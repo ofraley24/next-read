@@ -1,11 +1,11 @@
 // Cloudflare Worker entry: runs /api/* here, serves everything else from the static assets in public/.
 import { handle } from '../server/http.js';
-import { profile, shelf, explain } from '../server/handlers.js';
+import { profile, shelf, explain, ask } from '../server/handlers.js';
 import { SHELVES } from '../server/prompt.js';
 
 const shelfList = SHELVES.map(({ title, blurb }) => ({ title, blurb }));
 
-const routes = { '/api/profile': profile, '/api/shelf': shelf, '/api/explain': explain };
+const routes = { '/api/profile': profile, '/api/shelf': shelf, '/api/explain': explain, '/api/ask': ask };
 
 export default {
   async fetch(request, env) {

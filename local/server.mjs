@@ -8,7 +8,7 @@ import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, normalize, extname, resolve, sep } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { profile, shelf, explain } from '../server/handlers.js';
+import { profile, shelf, explain, ask as askHandler } from '../server/handlers.js';
 import { SHELVES } from '../server/prompt.js';
 
 const PUBLIC = resolve(fileURLToPath(new URL('../public', import.meta.url)));
@@ -47,7 +47,7 @@ export function makeServer({ ask = claudeCLI, lookup } = {}) {
       const url = new URL(req.url, 'http://localhost');
       if (url.pathname === '/api/config') return json(res, 200, { passcodeRequired: false, mode: 'local-claude-code', shelves: SHELVES.map(({ title, blurb }) => ({ title, blurb })) });
       if (url.pathname.startsWith('/api/')) {
-        const fn = { '/api/profile': profile, '/api/shelf': shelf, '/api/explain': explain }[url.pathname.replace(/\/+$/, '')];
+        const fn = { '/api/profile': profile, '/api/shelf': shelf, '/api/explain': explain, '/api/ask': askHandler }[url.pathname.replace(/\/+$/, '')];
         if (!fn) return json(res, 404, { error: 'Not found' });
         if (req.method !== 'POST') return json(res, 405, { error: 'POST only' });
         if (running >= MAX_PARALLEL) return json(res, 429, { error: 'Too many requests at once. Give it a moment.' });

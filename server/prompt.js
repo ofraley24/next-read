@@ -109,3 +109,30 @@ ${profile}
 LIBRARY:
 ${libraryText(library)}`;
 }
+
+// Free-form questions about the shop ("does X fit me?"). Sees the library, the taste statements and what is on the shelves now.
+export function askPrompt({ library, profile = '', shelves = [], pinned = [], dismissed = [], history = [], question }) {
+  const shelfText = shelves.map(sh => `${sh.shelf}:\n${(sh.books || []).map(b => `  ${b.title} — ${b.author}${b.year ? ' (' + b.year + ')' : ''}${b.pitch ? ': ' + b.pitch : ''}`).join('\n') || '  (empty)'}`).join('\n') || '(nothing stocked yet)';
+  const turns = history.slice(-6).map(t => `READER: ${String(t.q).slice(0, 500)}\nYOU: ${String(t.a).slice(0, 900)}`).join('\n\n');
+  return `You are the bookseller in a personal bookshop. The reader is asking the shop a question. Answer from their own library, notes and taste statements, and from what is currently on the shelves.
+
+HOW TO ANSWER
+- Be direct and specific: 2-5 sentences unless they ask for more. Plain prose, no headings, no bullet lists unless they ask for a list.
+- Judge fit on underlying ideas, arguments and narrative voice, and name the reader's own books (and any private notes) that support your view. Say where it would NOT land for them.
+- If the question is about a book on a shelf, use its pitch for context. If it is not on a shelf, answer from your own knowledge of the book. If you do not know a book well or are unsure it exists, say so plainly; never invent plot or details.
+- If they ask for suggestions, name real books only, and not ones already in their library or on their dismissed list.
+
+TASTE PROFILE (reader-edited statements, authoritative):
+${profile || '(none yet)'}
+
+PINNED: ${pinned.join('; ') || 'none'}
+DISMISSED (with reasons): ${dismissed.join('; ') || 'none'}
+
+ON THE SHELVES NOW:
+${shelfText}
+
+LIBRARY:
+${libraryText(library, true)}
+${turns ? `\nEARLIER IN THIS CONVERSATION:\n${turns}\n` : ''}
+READER'S QUESTION: ${String(question).slice(0, 1000)}`;
+}
