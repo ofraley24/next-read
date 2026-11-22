@@ -1,4 +1,4 @@
-'use strict';
+
 // Catalogue lookup: verifies a book exists and finds a cover.
 // Sources: Open Library (primary), Google Books (fallback). Both are free, no key required.
 
@@ -57,4 +57,4 @@ async function lookup(title, author, fetchImpl = fetch) {
   return ol || gb || { verified: false, cover: null, source: null };
 }
 
-module.exports = { lookup, titleMatches, authorMatches, norm };
+export { lookup, titleMatches, authorMatches, norm };

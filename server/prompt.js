@@ -1,4 +1,4 @@
-'use strict';
+
 // Prompts for the two engine steps. Kept separate so they are easy to iterate on.
 
 function bookLine(b) {
@@ -53,4 +53,4 @@ LIBRARY:
 ${libraryText(library)}`;
 }
 
-module.exports = { libraryText, profilePrompt, recommendPrompt };
+export { libraryText, profilePrompt, recommendPrompt };

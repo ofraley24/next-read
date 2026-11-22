@@ -1,0 +1,14 @@
+{
+  "name": "next-read",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler pages dev public",
+    "test": "node --test test/handlers.test.js",
+    "deploy": "wrangler pages deploy public --project-name next-read --branch main --commit-dirty=true --force"
+  },
+  "devDependencies": {
+    "wrangler": "^4.151.0"
+  }
+}
