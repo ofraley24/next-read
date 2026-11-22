@@ -62,9 +62,21 @@ test('gives up after three tries and reports not verified', quiet(async () => {
   assert.ok(n >= 3);
 }));
 
-test('never more than 3 catalogue requests in flight at once', quiet(async () => {
+test('never more than 5 catalogue requests in flight at once', quiet(async () => {
   let active = 0, peak = 0;
   const fetchImpl = async () => { active++; peak = Math.max(peak, active); await new Promise(r => setTimeout(r, 20)); active--; return res(200, { docs: [], items: [] }); };
   await Promise.all(Array.from({ length: 12 }, (_, i) => lookup(`Many ${i}`, 'Em Author', { fetchImpl, ...noWait })));
-  assert.ok(peak <= 3, `peak was ${peak}`);
+  assert.ok(peak <= 5 && peak > 1, `peak was ${peak}`);
+}));
+
+test('time spent waiting in the queue does not count against a request\'s timeout', quiet(async () => {
+  // 10 lookups, each fetch takes 40ms, timeout is 60ms, 5 slots: later ones queue for ~40-80ms.
+  // Before the fix the clock started at enqueue, so queued requests were aborted before they ran.
+  const fetchImpl = (u, { signal }) => new Promise((resolve, reject) => {
+    if (signal.aborted) return reject(Object.assign(new Error('aborted'), { name: 'AbortError' }));
+    const t = setTimeout(() => resolve(res(200, { docs: [{ title: decodeURIComponent(new URL(u).searchParams.get('title') || '').replace(/\+/g, ' '), author_name: ['Q Author'], cover_i: 1 }] })), 40);
+    signal.addEventListener('abort', () => { clearTimeout(t); reject(Object.assign(new Error('aborted'), { name: 'AbortError' })); });
+  });
+  const outs = await Promise.all(Array.from({ length: 10 }, (_, i) => lookup(`Queued ${i}`, 'Q Author', { fetchImpl: (u, o) => fetchImpl(u, o), timeoutMs: 60, tries: 1, ...noWait })));
+  assert.ok(outs.every(o => o.cover), `missing covers: ${outs.filter(o => !o.cover).length}`);
 }));

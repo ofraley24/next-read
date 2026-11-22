@@ -101,3 +101,11 @@ test('worker routes /api/*, rejects other methods, and serves assets for everyth
   assert.strictEqual(await (await call('/', 'GET')).text(), 'asset:/');
   assert.strictEqual(await (await call('/app.js', 'GET')).text(), 'asset:/app.js');
 });
+
+test('shelf retries once for books that came back without a cover', async () => {
+  const calls = {};
+  const lookup = async title => { calls[title] = (calls[title] || 0) + 1; return calls[title] === 1 ? { verified: true, cover: null, source: 'x' } : { verified: true, cover: 'https://example.test/late.jpg', source: 'x' }; };
+  const out = await shelf({ library, profile: 'x', shelf: 0 }, { claude: async () => JSON.stringify([bk('Anathem', 'Neal Stephenson')]), lookup });
+  assert.strictEqual(out.books[0].cover, 'https://example.test/late.jpg');
+  assert.strictEqual(calls.Anathem, 2);
+});

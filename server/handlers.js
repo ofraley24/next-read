@@ -50,7 +50,13 @@ export async function shelf(body, ctx = {}) {
     if (!spec.fromToRead && !info.verified) { dropped++; return null; }   // not in any catalogue: likely invented
     return { title: b.title, author: b.author, year: b.year, pitch: b.pitch, cover: info.cover || null, coverSource: info.source };
   });
-  return { shelf: spec.title, blurb: spec.blurb, books: checked.filter(Boolean), dropped };
+  const result = checked.filter(Boolean);
+  // One more try for any book that has no cover yet (a miss is never cached, so this really asks again).
+  await pool(result.filter(b => !b.cover), 2, async b => {
+    const again = await find(b.title, b.author);
+    if (again.cover) { b.cover = again.cover; b.coverSource = again.source; }
+  });
+  return { shelf: spec.title, blurb: spec.blurb, books: result, dropped };
 }
 
 // The long explanation for one book, fetched when you click it.

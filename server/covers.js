@@ -20,7 +20,7 @@ function authorMatches(want, gotList) {
 }
 
 // ---- polite HTTP: limited concurrency, retries with backoff on throttling/timeouts, logged failures ----
-const MAX_CONCURRENT = 3;
+const MAX_CONCURRENT = 5;
 let active = 0; const waiting = [];
 async function gate(fn) {
   if (active >= MAX_CONCURRENT) await new Promise(r => waiting.push(r));
@@ -29,19 +29,24 @@ async function gate(fn) {
 }
 const realSleep = ms => new Promise(r => setTimeout(r, ms));
 
-async function getJSON(url, { fetchImpl = fetch, sleep = realSleep, tries = 3 } = {}) {
+async function getJSON(url, { fetchImpl = fetch, sleep = realSleep, tries = 3, timeoutMs = 8000 } = {}) {
   const host = new URL(url).hostname;
   for (let i = 0; i < tries; i++) {
-    const ctl = new AbortController();
-    const timer = setTimeout(() => ctl.abort(), 8000);
     let why;
     try {
-      const r = await gate(() => fetchImpl(url, { signal: ctl.signal, headers: { 'user-agent': 'next-read/1.0 (personal project)' } }));
-      if (r.ok) return await r.json();
-      why = `HTTP ${r.status}`;
-      if (r.status < 500 && r.status !== 429) { console.warn(`lookup: ${host} ${why}`); return null; }   // a real "no", don't retry
+      // The timeout starts only once a slot is free, so time spent queueing never counts against the request.
+      const out = await gate(async () => {
+        const ctl = new AbortController();
+        const timer = setTimeout(() => ctl.abort(), timeoutMs);
+        try {
+          const r = await fetchImpl(url, { signal: ctl.signal, headers: { 'user-agent': 'next-read/1.0 (personal project)' } });
+          return { status: r.status, body: r.ok ? await r.json() : null };
+        } finally { clearTimeout(timer); }
+      });
+      if (out.body !== null) return out.body;
+      why = `HTTP ${out.status}`;
+      if (out.status < 500 && out.status !== 429) { console.warn(`lookup: ${host} ${why}`); return null; }   // a real "no", don't retry
     } catch (e) { why = e && e.name === 'AbortError' ? 'timeout' : String(e && e.message || e); }
-    finally { clearTimeout(timer); }
     if (i < tries - 1) await sleep(500 * 2 ** i);   // 0.5s, 1s
     else console.warn(`lookup: ${host} gave up after ${tries} tries (${why})`);
   }
