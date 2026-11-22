@@ -48,8 +48,15 @@ $('csv').onchange = async e => {
 $('reset').onclick = () => { if (confirm('Clear saved library, picks and passcode on this device?')) { try { localStorage.removeItem(KEY); } catch {} location.reload(); } };
 
 /* ---------- API ---------- */
+let passcodeRequired = null; // asked once from /api/config; the local server says false
+async function needsPasscode() {
+  if (passcodeRequired === null) {
+    try { passcodeRequired = (await (await fetch('/api/config')).json()).passcodeRequired !== false; } catch { passcodeRequired = true; }
+  }
+  return passcodeRequired;
+}
 async function api(path, body) {
-  if (!state.passcode) { state.passcode = prompt('Passcode for this site:') || ''; save(); }
+  if ((await needsPasscode()) && !state.passcode) { state.passcode = prompt('Passcode for this site:') || ''; save(); }
   const res = await fetch(`/api/${path}`, { method: 'POST', headers: { 'content-type': 'application/json', 'x-passcode': state.passcode }, body: JSON.stringify(body) });
   let data = {}; try { data = await res.json(); } catch {}
   if (res.status === 401) { state.passcode = ''; save(); throw new Error('Wrong passcode. Try again.'); }

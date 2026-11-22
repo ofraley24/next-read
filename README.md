@@ -12,7 +12,8 @@ Runs on Cloudflare Workers (static assets + a small API).
 public/          static front end (no build step)
 worker/index.js  Worker entry: routes POST /api/profile and /api/recommend, serves public/ for everything else
 wrangler.jsonc   Worker config (name must match the Worker in the Cloudflare dashboard)
-server/          the logic the Worker calls
+local/server.mjs  local server that uses your Claude plan via `claude -p`
+server/          the logic the Worker and local server call
   anthropic.js   Claude Messages API client (plain fetch)
   prompt.js      the prompts: iterate here
   covers.js      catalogue verification + covers (Open Library, Google Books)
@@ -36,7 +37,20 @@ Set two **secrets** on the Worker (dashboard: Settings -> Variables and Secrets,
 
 Manual deploy: `npm install && npm run deploy`. The model defaults to `claude-sonnet-5-5`; set a `CLAUDE_MODEL` variable to change it.
 
-## Run locally
+## Run locally on your Claude plan (no API bill)
+
+`local/server.mjs` serves the site and answers `/api/*` by running your signed-in Claude Code (`claude -p`), so usage is drawn from your Claude subscription instead of API billing. It listens on `127.0.0.1` only, so no passcode is needed. Covers and catalogue checks still work because they run from your own machine.
+
+Needs Node 20+ and Claude Code installed and signed in (run `claude` once to log in).
+
+```bash
+git pull
+npm run local        # http://localhost:8787
+```
+
+Notes: one request at a time; each call runs with tools disabled in an empty temp folder; set `CLAUDE_MODEL` (for example `sonnet`) to choose a model, `PORT` to change the port, `CLAUDE_BIN` if `claude` isn't on your PATH. Anthropic's rules for subscription use by scripts can change, so check them if this stops working.
+
+## Run locally with the Cloudflare Worker (uses API credits)
 
 Create `.dev.vars` (git-ignored):
 
