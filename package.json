@@ -7,7 +7,8 @@
     "dev": "wrangler dev",
     "test": "node --test test/handlers.test.js test/local.test.js test/covers.test.js",
     "deploy": "wrangler deploy",
-    "local": "node local/server.mjs"
+    "local": "node local/server.mjs",
+    "cover-debug": "node local/cover-debug.mjs"
   },
   "devDependencies": {
     "wrangler": "^4.151.0"

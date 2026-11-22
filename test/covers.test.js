@@ -80,3 +80,41 @@ test('time spent waiting in the queue does not count against a request\'s timeou
   const outs = await Promise.all(Array.from({ length: 10 }, (_, i) => lookup(`Queued ${i}`, 'Q Author', { fetchImpl: (u, o) => fetchImpl(u, o), timeoutMs: 60, tries: 1, ...noWait })));
   assert.ok(outs.every(o => o.cover), `missing covers: ${outs.filter(o => !o.cover).length}`);
 }));
+
+import { diagnose } from '../server/covers.js';
+
+test('exact ISBN is tried first and accepted even when the catalogue title differs (new/self-published books)', quiet(async () => {
+  const urls = [];
+  const fetchImpl = async u => { urls.push(u); return u.includes('isbn=') ? res(200, ol('The Farthest Reaches (paperback)', 'B. Hall', 42)) : res(200, { docs: [] }); };
+  const out = await lookup('The Farthest Reaches: Why People Are the Most Important Entities in the Universe', 'Brett Hall', { isbn: '="9798994621219"', fetchImpl, ...noWait });
+  assert.ok(out.cover.includes('/id/42-'));
+  assert.ok(urls[0].includes('isbn=9798994621219'), urls[0]);   // ISBN digits only, first query
+  assert.strictEqual(urls.length, 1);
+}));
+
+test('accented author names: queries use the folded name and match either spelling', quiet(async () => {
+  const urls = [];
+  // the catalogue stores "Benjamin Labatut" (no accent); the strict query finds nothing, the folded one does
+  const fetchImpl = async u => { urls.push(u); return u.includes('q=') ? res(200, ol('When We Cease to Understand the World', 'Benjamin Labatut', 77)) : res(200, { docs: [] }); };
+  const out = await lookup('When We Cease to Understand the World', 'Benjamín Labatut', { fetchImpl, ...noWait });
+  assert.ok(out.cover);
+  assert.ok(urls.some(u => u.includes('Benjamin+Labatut')), urls.join('\n'));
+  // and the reverse: catalogue has the accent, reader's CSV does not
+  const out2 = await lookup('When We Cease To Understand The World!', 'Benjamin Labatut', { fetchImpl: async () => res(200, ol('When We Cease to Understand the World', 'Benjamín Labatut', 78)), ...noWait });
+  assert.ok(out2.cover);
+}));
+
+test('title-only query finds the book when the author is formatted unexpectedly', quiet(async () => {
+  const fetchImpl = async u => (u.includes('author=') || u.includes('q=') || u.includes('googleapis')) ? res(200, { docs: [], items: [] }) : res(200, ol('Odd Author Book', 'Dr. J. R. R. Odd-Author', 3));
+  const out = await lookup('Odd Author Book', 'Odd-Author', { fetchImpl, ...noWait });
+  assert.ok(out.cover);
+}));
+
+test('diagnose explains every query and what matched', async () => {
+  const fetchImpl = async u => u.includes('googleapis') ? res(500, {}) : res(200, ol('Some Book', 'Wrong Person', null));
+  const text = await diagnose('Some Book', 'Ann Author', '9780000000002', { fetchImpl });
+  assert.match(text, /\[openlibrary, by ISBN\]/);
+  assert.match(text, /HTTP 500/);
+  assert.match(text, /title:match  author:no  cover:NO/);
+  assert.match(text, /=> 0 accepted/);
+});

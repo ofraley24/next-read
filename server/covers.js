@@ -56,52 +56,78 @@ async function getJSON(url, { fetchImpl = fetch, sleep = realSleep, tries = 3, t
 // Drop "(Series, #2)" suffixes: they break catalogue searches. Optionally drop the subtitle too.
 const cleanTitle = t => String(t).replace(/\s*\(.*?\)\s*/g, ' ').replace(/\s+/g, ' ').trim();
 const mainTitle = t => cleanTitle(t).split(':')[0].trim();
+const fold = s => String(s || '').normalize('NFKD').replace(/[̀-ͯ]/g, '');   // Benjamín -> Benjamin
+const cleanIsbn = s => String(s || '').replace(/[^0-9Xx]/g, '').toUpperCase();
 
-async function openLibrary(title, author, opts) {
-  const tries = [
-    new URLSearchParams({ title: cleanTitle(title), author, limit: '10', fields: 'title,author_name,first_publish_year,cover_i' }),
-    new URLSearchParams({ q: `${mainTitle(title)} ${author}`, limit: '10', fields: 'title,author_name,first_publish_year,cover_i' }),   // looser
-  ];
-  let best = null;
-  for (const q of tries) {
-    const data = await getJSON(`https://openlibrary.org/search.json?${q}`, opts);
-    const docs = ((data && data.docs) || []).filter(d => titleMatches(title, d.title) && authorMatches(author, d.author_name));
-    const hit = docs.find(d => d.cover_i) || docs[0];
-    if (hit && hit.cover_i) return { verified: true, cover: `https://covers.openlibrary.org/b/id/${hit.cover_i}-M.jpg?default=false`, source: 'openlibrary' };
-    if (hit && !best) best = { verified: true, cover: null, source: 'openlibrary' };
-    if (best) break;   // found it but no cover: the looser query won't add one, go to the next source
-  }
-  return best;
+// The catalogue queries to try, in order. Each plan says where to ask and how to read the answer.
+// byIsbn plans identify the exact edition, so their results are accepted without title/author checks.
+function plans(title, author, isbn) {
+  const t = cleanTitle(title), m = mainTitle(title), a = fold(author);
+  const ol = (params, extra = {}) => ({
+    source: 'openlibrary', ...extra,
+    url: `https://openlibrary.org/search.json?${new URLSearchParams({ ...params, limit: '20', fields: 'title,author_name,cover_i' })}`,
+    items: j => ((j && j.docs) || []).map(d => ({ title: d.title, authors: d.author_name, cover: d.cover_i ? `https://covers.openlibrary.org/b/id/${d.cover_i}-M.jpg?default=false` : null })),
+  });
+  const gb = (q, extra = {}) => ({
+    source: 'googlebooks', ...extra,
+    url: `https://www.googleapis.com/books/v1/volumes?q=${encodeURIComponent(q).replace(/%2B/g, '+')}&maxResults=20`,
+    items: j => ((j && j.items) || []).map(i => i.volumeInfo || {}).map(v => {
+      const img = v.imageLinks && (v.imageLinks.thumbnail || v.imageLinks.smallThumbnail);
+      return { title: v.title, authors: v.authors, cover: img ? img.replace(/^http:/, 'https:') : null };
+    }),
+  });
+  const list = [];
+  const id = cleanIsbn(isbn);
+  if (id.length === 10 || id.length === 13) list.push(ol({ isbn: id }, { byIsbn: true }), gb(`isbn:${id}`, { byIsbn: true }));
+  list.push(
+    ol({ title: t, author }),                 // strict
+    ol({ q: `${m} ${a}` }),                   // looser, accents folded
+    gb(`intitle:${m}+inauthor:${a}`),
+    ol({ title: t }),                         // title only: immune to author-name formatting
+    gb(`${m} ${a}`),
+  );
+  return list;
 }
-
-async function googleBooks(title, author, opts) {
-  const qs = [`intitle:${mainTitle(title)}+inauthor:${author}`, `${mainTitle(title)} ${author}`];
-  let best = null;
-  for (const q of qs) {
-    const data = await getJSON(`https://www.googleapis.com/books/v1/volumes?q=${encodeURIComponent(q).replace(/%2B/g, '+')}&maxResults=10&printType=books`, opts);
-    const vols = ((data && data.items) || []).map(i => i.volumeInfo || {}).filter(v => titleMatches(title, v.title) && authorMatches(author, v.authors));
-    const withImg = vols.find(v => v.imageLinks && (v.imageLinks.thumbnail || v.imageLinks.smallThumbnail));
-    if (withImg) { const img = withImg.imageLinks.thumbnail || withImg.imageLinks.smallThumbnail; return { verified: true, cover: img.replace(/^http:/, 'https:'), source: 'googlebooks' }; }
-    if (vols.length && !best) best = { verified: true, cover: null, source: 'googlebooks' };
-  }
-  return best;
-}
+const accept = (plan, item, title, author) => plan.byIsbn || (titleMatches(title, item.title) && authorMatches(author, item.authors));
 
 // Successful lookups are remembered for the life of the process, so refreshes don't hit the catalogues again.
 const cache = new Map();
 
-// Returns {verified, cover, source}. Prefers a result that has a cover.
+// Returns {verified, cover, source}. Stops at the first plan that yields a cover; remembers if any plan at least found the book.
 async function lookup(title, author, opts = {}) {
   if (typeof opts === 'function') opts = { fetchImpl: opts };   // old call style: lookup(title, author, fetchImpl)
   const k = `${norm(title)}|${norm(author)}`;
   if (cache.has(k)) return cache.get(k);
-  const ol = await openLibrary(title, author, opts);
-  let out = ol && ol.cover ? ol : null;
-  if (!out) { const gb = await googleBooks(title, author, opts); out = gb && gb.cover ? gb : (ol || gb); }
-  if (!out) { console.warn(`lookup: no catalogue match for "${title}" by ${author}`); return { verified: false, cover: null, source: null }; }
-  if (!out.cover) console.warn(`lookup: found "${title}" but no cover image`);
-  if (out.cover) cache.set(k, out);   // only cache full successes; misses get another chance next time
-  return out;
+  let best = null;
+  for (const plan of plans(title, author, opts.isbn)) {
+    const data = await getJSON(plan.url, opts);
+    const hits = plan.items(data).filter(it => accept(plan, it, title, author));
+    const withCover = hits.find(h => h.cover);
+    if (withCover) { const out = { verified: true, cover: withCover.cover, source: plan.source }; cache.set(k, out); return out; }
+    if (hits.length && !best) best = { verified: true, cover: null, source: plan.source };
+  }
+  if (best) console.warn(`lookup: found "${title}" but no cover image in any catalogue`);
+  else console.warn(`lookup: no catalogue match for "${title}" by ${author}`);
+  return best || { verified: false, cover: null, source: null };
 }
 
-export { lookup, titleMatches, authorMatches, norm, cleanTitle };
+// Human-readable trace of every query for one book: what was asked, what came back, what matched.
+// Used by `npm run cover-debug`; makes "why is this cover missing?" answerable.
+async function diagnose(title, author, isbn, { fetchImpl = fetch } = {}) {
+  const lines = [`Book: "${title}" by ${author}${isbn ? `  (ISBN ${isbn})` : ''}`, `Cleaned title: "${cleanTitle(title)}"   Main title: "${mainTitle(title)}"   Author folded: "${fold(author)}"`, ''];
+  for (const plan of plans(title, author, isbn)) {
+    lines.push(`[${plan.source}${plan.byIsbn ? ', by ISBN' : ''}] ${plan.url}`);
+    let r;
+    try { r = await fetchImpl(plan.url, { headers: { 'user-agent': 'next-read/1.0 (personal project)' } }); }
+    catch (e) { lines.push(`   request failed: ${e.message}`, ''); continue; }
+    if (!r.ok) { lines.push(`   HTTP ${r.status}`, ''); continue; }
+    const items = plan.items(await r.json());
+    lines.push(`   HTTP ${r.status}, ${items.length} result(s)`);
+    items.slice(0, 6).forEach(it => lines.push(`   - "${it.title}" by ${(it.authors || []).join(', ') || '?'}  title:${titleMatches(title, it.title) ? 'match' : 'no'}  author:${authorMatches(author, it.authors) ? 'match' : 'no'}  cover:${it.cover ? 'yes' : 'NO'}${plan.byIsbn ? '  (accepted: exact ISBN)' : ''}`));
+    const ok = items.filter(it => accept(plan, it, title, author));
+    lines.push(`   => ${ok.length} accepted, ${ok.filter(i => i.cover).length} with a cover`, '');
+  }
+  return lines.join('\n');
+}
+
+export { lookup, diagnose, titleMatches, authorMatches, norm, cleanTitle, cleanIsbn, fold };

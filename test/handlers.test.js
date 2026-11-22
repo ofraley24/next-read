@@ -109,3 +109,11 @@ test('shelf retries once for books that came back without a cover', async () => 
   assert.strictEqual(out.books[0].cover, 'https://example.test/late.jpg');
   assert.strictEqual(calls.Anathem, 2);
 });
+
+test('shelf passes the ISBN from the reader\'s own library to the cover lookup', async () => {
+  const lib = [{ title: 'The Farthest Reaches', author: 'Brett Hall', shelf: 'to-read', rating: 0, isbn: '9798994621219' }, { title: 'Excession', author: 'Iain M. Banks', shelf: 'read', rating: 5 }];
+  const seen = [];
+  const lookup = async (title, author, opts) => { seen.push([title, opts && opts.isbn]); return { verified: true, cover: 'https://example.test/c.jpg', source: 'x' }; };
+  await shelf({ library: lib, profile: 'x', shelf: 0 }, { claude: async () => JSON.stringify([bk('The Farthest Reaches', 'Brett Hall')]), lookup });
+  assert.deepStrictEqual(seen, [['The Farthest Reaches', '9798994621219']]);
+});

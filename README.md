@@ -69,6 +69,12 @@ then `npm run dev` and open the printed URL.
 
 Time is dominated by how many words Claude has to write, so shelf size is the main dial: edit `SHELVES` in `server/prompt.js` (`count` per shelf). The local server logs how long each call and each `claude -p` run took. Set `CLAUDE_MODEL` (for example `haiku`) for faster, lighter calls.
 
+## Missing a cover?
+
+`npm run cover-debug -- "<title>" "<author>" [isbn]` shows every catalogue query for one book, what came back, and why each result was accepted or rejected. The server also logs a line for each lookup that finds no match or no cover image.
+
+Covers are looked up by exact ISBN first (taken from your Goodreads export, so re-import the CSV after pulling this change), then by title and author with several variants (series suffix removed, accents folded, title only), in Open Library then Google Books. Brand-new or self-published books may simply not be in either; those keep the generated cover.
+
 ## Tests
 
 ```bash

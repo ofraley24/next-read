@@ -34,7 +34,8 @@ function fromCSV(rows) {
       author: r.Author, rating: parseFloat(r['My Rating'] || 0), shelf: r['Exclusive Shelf'],
       year: r['Original Publication Year'], pages: r['Number of Pages'],
       review: (r['My Review'] || '').replace(/<br\s*\/?>/g, ' ').trim(),
-      notes: (r['Private Notes'] || '').replace(/<br\s*\/?>/g, ' ').trim() };
+      notes: (r['Private Notes'] || '').replace(/<br\s*\/?>/g, ' ').trim(),
+      isbn: (r['ISBN13'] || r['ISBN'] || '').replace(/[^0-9Xx]/g, '') };
   });
 }
 $('csv').onchange = async e => {
