@@ -28,34 +28,35 @@ test('local server: config, static files, no path traversal, no passcode needed'
   });
 });
 
-test('local server: /api/profile and /api/recommend use the injected claude (no network)', async () => {
+test('local server: profile, shelf and explain use the injected claude (no network)', async () => {
   const lib = [{ title: 'Excession', author: 'Iain M. Banks', shelf: 'read', rating: 5 }, { title: 'Anathem', author: 'Neal Stephenson', shelf: 'to-read', rating: 0 }];
-  const book = (title, author) => ({ title, author, pitch: 'p', why: 'w', links: [], themes: [], caution: '' });
-  const reply = JSON.stringify([
-    { shelf: 'From your to-read pile', blurb: '', books: [book('Anathem', 'Neal Stephenson')] },
-    { shelf: 'Closest fit', blurb: '', books: [book('Diaspora', 'Greg Egan')] }, { shelf: 'Stretch', blurb: '', books: [] }, { shelf: 'Wildcards', blurb: '', books: [] },
-  ]);
-  const ask = async ({ prompt }) => prompt.includes('taste analyst') ? '  You like big ideas.  ' : reply;
+  const ask = async ({ prompt }) => prompt.includes('taste analyst') ? '  You like big ideas.  '
+    : prompt.includes('Explain why') ? JSON.stringify({ why: 'Because.', links: ['Excession'], themes: ['x'], caution: 'c' })
+    : JSON.stringify([{ title: 'Diaspora', author: 'Greg Egan', year: '1997', pitch: 'p' }]);
   const lookup = async () => ({ verified: true, cover: 'https://example.test/c.jpg', source: 'test' });
   await withServer({ ask, lookup }, async base => {
     assert.deepStrictEqual(await (await post(base + '/api/profile', { library: lib })).json(), { profile: 'You like big ideas.' });
-    const out = await (await post(base + '/api/recommend', { library: lib, profile: 'x' })).json();
-    assert.deepStrictEqual(out.shelves.map(s => s.books.length), [1, 1, 0, 0]);
-    assert.strictEqual(out.shelves[1].books[0].cover, 'https://example.test/c.jpg');
+    const out = await (await post(base + '/api/shelf', { library: lib, profile: 'x', shelf: 1 })).json();
+    assert.strictEqual(out.shelf, 'Closest fit');
+    assert.strictEqual(out.books[0].cover, 'https://example.test/c.jpg');
+    const ex = await (await post(base + '/api/explain', { library: lib, profile: 'x', book: { title: 'Diaspora', author: 'Greg Egan' } })).json();
+    assert.deepStrictEqual(ex.links, ['Excession']);
     assert.strictEqual((await post(base + '/api/profile', { library: [] })).status, 400);
-    assert.strictEqual((await fetch(base + '/api/profile')).status, 405);
+    assert.strictEqual((await fetch(base + '/api/shelf')).status, 405);
+    assert.strictEqual((await post(base + '/api/recommend', {})).status, 404);
   });
 });
 
-test('local server: rejects a second request while one is running', async () => {
-  let release; const gate = new Promise(r => release = r);
-  await withServer({ ask: async () => { await gate; return 'text'; } }, async base => {
-    const lib = [{ title: 'A', author: 'B', shelf: 'read', rating: 5 }];
-    const first = post(base + '/api/profile', { library: lib });
-    await new Promise(r => setTimeout(r, 100));
-    assert.strictEqual((await post(base + '/api/profile', { library: lib })).status, 429);
-    release();
-    assert.strictEqual((await first).status, 200);
+test('local server: runs shelves in parallel and caps concurrency', async () => {
+  let active = 0, peak = 0;
+  const ask = async () => { active++; peak = Math.max(peak, active); await new Promise(r => setTimeout(r, 80)); active--; return '[]'; };
+  const lib = [{ title: 'A', author: 'B', shelf: 'read', rating: 5 }];
+  await withServer({ ask }, async base => {
+    const rs = await Promise.all([0, 1, 2, 3].map(i => post(base + '/api/shelf', { library: lib, shelf: i })));
+    assert.deepStrictEqual(rs.map(r => r.status), [200, 200, 200, 200]);
+    assert.strictEqual(peak, 4);                                   // all four shelves ran at the same time
+    const many = await Promise.all(Array.from({ length: 7 }, () => post(base + '/api/shelf', { library: lib, shelf: 0 })));
+    assert.ok(many.some(r => r.status === 429));                    // more than the cap is refused, not queued forever
   });
 });
 

@@ -1,8 +1,8 @@
 // Cloudflare Worker entry: runs /api/* here, serves everything else from the static assets in public/.
 import { handle } from '../server/http.js';
-import { profile, recommend } from '../server/handlers.js';
+import { profile, shelf, explain } from '../server/handlers.js';
 
-const routes = { '/api/profile': profile, '/api/recommend': recommend };
+const routes = { '/api/profile': profile, '/api/shelf': shelf, '/api/explain': explain };
 
 export default {
   async fetch(request, env) {

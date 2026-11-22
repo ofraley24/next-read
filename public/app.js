@@ -33,7 +33,8 @@ function fromCSV(rows) {
     return { id: r['Book Id'], title: r.Title.replace(/\s*\(.*?\)\s*$/, '').trim(), series: m ? m[1] : '',
       author: r.Author, rating: parseFloat(r['My Rating'] || 0), shelf: r['Exclusive Shelf'],
       year: r['Original Publication Year'], pages: r['Number of Pages'],
-      review: (r['My Review'] || '').replace(/<br\s*\/?>/g, ' ').trim() };
+      review: (r['My Review'] || '').replace(/<br\s*\/?>/g, ' ').trim(),
+      notes: (r['Private Notes'] || '').replace(/<br\s*\/?>/g, ' ').trim() };
   });
 }
 $('csv').onchange = async e => {
@@ -95,19 +96,23 @@ function hideBrokenCovers(root) {
 const find = k => state.shelves.flatMap(s => s.books).find(x => key(x) === k);
 const tile = b => `<div class="tile" data-k="${esc(key(b))}">${coverHTML(b)}<div class="tp">${esc(b.pitch || '')}</div></div>`;
 
-function openBook(k) {
-  const b = find(k); if (!b) return;
-  const pinned = !!state.pinned[k];
-  $('sheet').innerHTML = `${coverHTML(b, true)}<div><h2>${esc(b.title)}</h2><div class="by">${esc(b.author)}${b.year ? ' · ' + esc(b.year) : ''}</div>
-    <div class="why">${esc(b.why)}</div>
+function sheetHTML(b) {
+  const k = key(b), pinned = !!state.pinned[k];
+  const detail = b.why
+    ? `<div class="why">${esc(b.why)}</div>
     <div class="links">${(b.links || []).map(l => `<span class="link">↔ ${esc(l)}</span>`).join('')}</div>
     <div class="links" style="margin-top:8px">${(b.themes || []).map(t => `<span class="tag-s">${esc(t)}</span>`).join('')}</div>
-    ${b.caution ? `<div class="caution" style="margin-top:10px">Might not land: ${esc(b.caution)}</div>` : ''}
+    ${b.caution ? `<div class="caution" style="margin-top:10px">Might not land: ${esc(b.caution)}</div>` : ''}`
+    : `<div class="why"><i>${b.explainError ? esc(b.explainError) : 'Working out why this fits you…'}</i></div>${b.explainError ? '<div class="acts"><button data-a="retry">Try again</button></div>' : ''}`;
+  return `${coverHTML(b, true)}<div><h2>${esc(b.title)}</h2><div class="by">${esc(b.author)}${b.year ? ' · ' + esc(b.year) : ''}</div>${b.pitch && !b.why ? `<div class="why">${esc(b.pitch)}</div>` : ''}${detail}
     <div class="acts"><button class="primary" data-a="pin">${pinned ? 'Unpin' : 'Pin to shortlist'}</button><button data-a="more">More like this</button><button data-a="no">Not for me</button><button data-a="close">Close</button></div></div>`;
+}
+function bindSheet(k) {
   hideBrokenCovers($('sheet'));
-  $('modal').classList.add('open');
   $('sheet').querySelectorAll('button').forEach(btn => btn.onclick = () => {
-    const a = btn.dataset.a;
+    const a = btn.dataset.a, b = find(k);
+    if (a === 'retry') return explainBook(k);
+    if (!b) return;
     if (a === 'pin') { if (state.pinned[k]) delete state.pinned[k]; else state.pinned[k] = b; }
     if (a === 'no') { state.dismissed[k] = { title: b.title, author: b.author }; delete state.pinned[k]; state.shelves.forEach(s => s.books = s.books.filter(x => key(x) !== k)); }
     if (a === 'more') $('free').value = `more like ${b.title} by ${b.author}`;
@@ -115,8 +120,25 @@ function openBook(k) {
     if (a === 'more') $('free').focus();
   });
 }
-$('modal').onclick = e => { if (e.target.id === 'modal') $('modal').classList.remove('open'); };
-document.addEventListener('keydown', e => { if (e.key === 'Escape') $('modal').classList.remove('open'); });
+let openKey = null;
+async function explainBook(k) {
+  const b = find(k); if (!b || b.why) return;
+  delete b.explainError; $('sheet').innerHTML = sheetHTML(b); bindSheet(k);
+  try {
+    Object.assign(b, await api('explain', { library: state.library, profile: state.profile, book: { title: b.title, author: b.author, year: b.year } }));
+    save();
+  } catch (e) { b.explainError = (e && e.message) || 'Could not load the explanation.'; }
+  if (openKey === k) { $('sheet').innerHTML = sheetHTML(b); bindSheet(k); }   // only redraw if still open
+}
+function openBook(k) {
+  const b = find(k); if (!b) return;
+  openKey = k;
+  $('sheet').innerHTML = sheetHTML(b); bindSheet(k);
+  $('modal').classList.add('open');
+  if (!b.why) explainBook(k);
+}
+$('modal').onclick = e => { if (e.target.id === 'modal') { $('modal').classList.remove('open'); openKey = null; } };
+document.addEventListener('keydown', e => { if (e.key === 'Escape') { $('modal').classList.remove('open'); openKey = null; } });
 
 function renderShelves() {
   if (!state.shelves.length) {
@@ -151,15 +173,34 @@ $('go').onclick = async () => {
       state.profile = (await api('profile', { library: state.library })).profile;
       $('profile').value = state.profile; save();
     }
-    btn.textContent = 'Stocking the shelves…'; $('shelves').innerHTML = skel(8);
+    btn.textContent = 'Stocking the shelves…';
     const steer = [...Object.keys(state.chips).filter(k => state.chips[k]), $('free').value.trim()].filter(Boolean);
-    const out = await api('recommend', {
+    const base = {
       library: state.library, profile: state.profile, steer,
       pinned: Object.values(state.pinned).map(b => `${b.title} — ${b.author}`),
       dismissed: Object.values(state.dismissed).map(b => `${b.title} — ${b.author}`),
       dismissedKeys: Object.keys(state.dismissed),
-    });
-    state.shelves = out.shelves; save();
+    };
+    const titles = ['From your to-read pile', 'Closest fit', 'Stretch', 'Wildcards'];
+    const slots = titles.map(shelf => ({ shelf, blurb: 'Loading…', books: [], loading: true }));
+    const draw = () => {
+      $('shelves').innerHTML = slots.map(s => `<section class="shelf"><h2>${esc(s.shelf)}</h2><p>${esc(s.error || s.blurb)}</p><div class="grid">${s.loading ? '<div class="skel"></div>'.repeat(6) : s.books.map(tile).join('')}</div></section>`).join('');
+      $('shelves').querySelectorAll('.tile').forEach(el => el.onclick = () => openBook(el.dataset.k));
+      hideBrokenCovers($('shelves'));
+    };
+    draw();
+    const seen = new Set();   // a book appears on one shelf only, in the order shelves finish
+    await Promise.all(slots.map(async (slot, i) => {
+      try {
+        const out = await api('shelf', { ...base, shelf: i });
+        slot.blurb = out.blurb; slot.books = out.books.filter(b => !seen.has(key(b)) && seen.add(key(b)));
+      } catch (e) { slot.error = `Could not load this shelf: ${(e && e.message) || 'error'}`; }
+      slot.loading = false; draw();
+    }));
+    state.shelves = slots.map(({ shelf, blurb, books }) => ({ shelf, blurb, books }));
+    save();
+    const failed = slots.filter(s => s.error).length;
+    if (failed) $('err').textContent = `${failed} of ${slots.length} shelves failed. Press Refresh to try again.`;
   } catch (e) { $('err').textContent = e.message || 'Something went wrong. Try again.'; }
   renderAll();
 };

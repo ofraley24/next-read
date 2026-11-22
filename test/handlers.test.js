@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert';
 import { titleMatches, authorMatches } from '../server/covers.js';
-import { recommend, profile } from '../server/handlers.js';
+import { shelf, explain, profile } from '../server/handlers.js';
 import { parseJSON } from '../server/anthropic.js';
 import { handle } from '../server/http.js';
 
@@ -25,29 +25,49 @@ test('parseJSON survives fences and chatter', () => {
 const library = [
   { title: 'Excession', author: 'Iain M. Banks', shelf: 'read', rating: 5 },
   { title: 'Anathem', author: 'Neal Stephenson', shelf: 'to-read', rating: 0 },
+  { title: 'Foundation', author: 'Isaac Asimov', shelf: 'to-read', rating: 0 },
 ];
-const b = (title, author) => ({ title, author, pitch: 'p', why: 'w', links: [], themes: [], caution: '' });
+const bk = (title, author) => ({ title, author, year: '2000', pitch: 'p' });
+const okLookup = async title => title === 'Totally Fake Book'
+  ? { verified: false, cover: null, source: null }
+  : { verified: true, cover: `https://example.test/${encodeURIComponent(title)}.jpg`, source: 'test' };
 
-test('recommend drops invented, owned and off-list books, and attaches covers', async () => {
-  const reply = JSON.stringify([
-    { shelf: 'From your to-read pile', blurb: '', books: [b('Anathem', 'Neal Stephenson'), b('Not On My List', 'Someone')] },
-    { shelf: 'Closest fit', blurb: '', books: [b('Diaspora', 'Greg Egan'), b('Totally Fake Book', 'Nobody Real'), b('Excession', 'Iain M. Banks')] },
-    { shelf: 'Stretch', blurb: '', books: [] },
-    { shelf: 'Wildcards', blurb: '', books: [] },
-  ]);
-  const lookup = async title => title === 'Totally Fake Book'
-    ? { verified: false, cover: null, source: null }
-    : { verified: true, cover: `https://example.test/${encodeURIComponent(title)}.jpg`, source: 'test' };
-  const out = await recommend({ library, profile: 'x' }, { claude: async () => reply, lookup });
-  assert.deepStrictEqual(out.shelves[0].books.map(x => x.title), ['Anathem']);
-  assert.deepStrictEqual(out.shelves[1].books.map(x => x.title), ['Diaspora']);
-  assert.ok(out.shelves[1].books[0].cover.includes('Diaspora'));
+test('shelf 0 (to-read) only keeps books on the reader\'s list', async () => {
+  const reply = JSON.stringify([bk('Anathem', 'Neal Stephenson'), bk('Not On My List', 'Someone'), bk('Foundation', 'Isaac Asimov')]);
+  const out = await shelf({ library, profile: 'x', shelf: 0 }, { claude: async () => reply, lookup: okLookup });
+  assert.strictEqual(out.shelf, 'From your to-read pile');
+  assert.deepStrictEqual(out.books.map(x => x.title), ['Anathem', 'Foundation']);
+  assert.strictEqual(out.dropped, 1);
+  assert.ok(out.books[0].cover.includes('Anathem'));
+});
+
+test('other shelves drop invented, owned, duplicate and dismissed books, and attach covers', async () => {
+  const reply = JSON.stringify([bk('Diaspora', 'Greg Egan'), bk('Totally Fake Book', 'Nobody Real'), bk('Excession', 'Iain M. Banks'),
+    bk('Anathem', 'Neal Stephenson'), bk('Diaspora', 'Greg Egan'), bk('Exhalation', 'Ted Chiang')]);
+  const dismissedKeys = ['exhalation|ted chiang'];
+  const out = await shelf({ library, profile: 'x', shelf: 1, dismissedKeys }, { claude: async () => reply, lookup: okLookup });
+  assert.deepStrictEqual(out.books.map(x => x.title), ['Diaspora']);   // fake, owned (read + to-read), duplicate and dismissed all removed
+  assert.strictEqual(out.books[0].cover, 'https://example.test/Diaspora.jpg');
   assert.strictEqual(out.dropped, 3);
 });
 
-test('recommend and profile reject an empty library', async () => {
-  await assert.rejects(() => recommend({ library: [] }, { claude: async () => '[]' }), /library is required/);
+test('shelf output stays short: only title, author, year, pitch, cover', async () => {
+  const noisy = JSON.stringify([{ ...bk('Diaspora', 'Greg Egan'), why: 'long text', links: ['x'] }]);
+  const out = await shelf({ library, profile: 'x', shelf: 2 }, { claude: async () => noisy, lookup: okLookup });
+  assert.deepStrictEqual(Object.keys(out.books[0]).sort(), ['author', 'cover', 'coverSource', 'pitch', 'title', 'year']);
+});
+
+test('shelf rejects bad input', async () => {
+  await assert.rejects(() => shelf({ library: [], shelf: 0 }, { claude: async () => '[]' }), /library is required/);
+  await assert.rejects(() => shelf({ library, shelf: 9 }, { claude: async () => '[]' }), /unknown shelf/);
   await assert.rejects(() => profile({ library: [] }, { claude: async () => 'x' }), /library is required/);
+});
+
+test('explain keeps only links to books really in the library', async () => {
+  const reply = JSON.stringify({ why: 'Because.', links: ['Excession', 'A Book You Never Read'], themes: ['a', 'b'], caution: 'Slow start.' });
+  const out = await explain({ library, profile: 'x', book: { title: 'Diaspora', author: 'Greg Egan' } }, { claude: async () => reply });
+  assert.deepStrictEqual(out, { why: 'Because.', links: ['Excession'], themes: ['a', 'b'], caution: 'Slow start.' });
+  await assert.rejects(() => explain({ library, book: {} }, { claude: async () => '{}' }), /book is required/);
 });
 
 const req = (headers = {}, body = '{"library":[1]}') => new Request('https://x.test/api/profile', { method: 'POST', headers, body });
@@ -73,7 +93,9 @@ test('worker routes /api/*, rejects other methods, and serves assets for everyth
   const e = { ASSETS: assets };                                  // no secrets configured -> API fails closed
   const call = (path, method = 'POST') => worker.fetch(new Request('https://x.test' + path, { method, body: method === 'POST' ? '{}' : undefined }), e);
   assert.strictEqual((await call('/api/profile')).status, 503);
-  assert.strictEqual((await call('/api/recommend')).status, 503);
+  assert.strictEqual((await call('/api/shelf')).status, 503);
+  assert.strictEqual((await call('/api/explain')).status, 503);
+  assert.strictEqual((await call('/api/recommend')).status, 404);
   assert.strictEqual((await call('/api/profile', 'GET')).status, 405);
   assert.strictEqual((await call('/api/nope')).status, 404);
   assert.strictEqual(await (await call('/', 'GET')).text(), 'asset:/');

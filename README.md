@@ -10,7 +10,7 @@ Runs on Cloudflare Workers (static assets + a small API).
 
 ```
 public/          static front end (no build step)
-worker/index.js  Worker entry: routes POST /api/profile and /api/recommend, serves public/ for everything else
+worker/index.js  Worker entry: routes POST /api/profile, /api/shelf and /api/explain, serves public/ for everything else
 wrangler.jsonc   Worker config (name must match the Worker in the Cloudflare dashboard)
 local/server.mjs  local server that uses your Claude plan via `claude -p`
 server/          the logic the Worker and local server call
@@ -60,6 +60,14 @@ APP_PASSCODE=anything
 ```
 
 then `npm run dev` and open the printed URL.
+
+## How a run works (and how to tune it)
+
+1. `/api/profile`: one call writes your taste profile from the full library (reviews and private notes included). Cached in the page; edit it freely.
+2. `/api/shelf` x4, in parallel: each shelf returns only title, author, year and a one-line hook, then every title is checked against Open Library / Google Books and given a cover. Shelves appear as they finish.
+3. `/api/explain`: the full "why / links / themes / might not land" for one book, fetched when you click it and cached.
+
+Time is dominated by how many words Claude has to write, so shelf size is the main dial: edit `SHELVES` in `server/prompt.js` (`count` per shelf). The local server logs how long each call and each `claude -p` run took. Set `CLAUDE_MODEL` (for example `haiku`) for faster, lighter calls.
 
 ## Tests
 

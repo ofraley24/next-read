@@ -8,10 +8,11 @@ import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, normalize, extname, resolve, sep } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { profile, recommend } from '../server/handlers.js';
+import { profile, shelf, explain } from '../server/handlers.js';
 
 const PUBLIC = resolve(fileURLToPath(new URL('../public', import.meta.url)));
 const TYPES = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.json': 'application/json', '.svg': 'image/svg+xml', '.png': 'image/png', '.ico': 'image/x-icon' };
+const MAX_PARALLEL = 5;
 const json = (res, status, data) => { res.writeHead(status, { 'content-type': 'application/json', 'cache-control': 'no-store' }); res.end(JSON.stringify(data)); };
 
 // Run one prompt through `claude -p` (prompt on stdin, plain-text answer on stdout).
@@ -21,6 +22,7 @@ export function claudeCLI({ prompt }, { bin = process.env.CLAUDE_BIN || 'claude'
     const args = ['-p', '--output-format', 'text', '--tools', '', '--no-session-persistence', '--disable-slash-commands'];
     if (model) args.push('--model', model);
     const child = spawn(bin, args, { cwd: mkdtempSync(join(tmpdir(), 'next-read-')), stdio: ['pipe', 'pipe', 'pipe'] });
+    const started = Date.now();
     let out = '', err = '';
     const timer = setTimeout(() => { child.kill('SIGKILL'); reject(new Error('Claude took too long (5 min).')); }, timeoutMs);
     child.stdout.on('data', d => out += d);
@@ -28,6 +30,7 @@ export function claudeCLI({ prompt }, { bin = process.env.CLAUDE_BIN || 'claude'
     child.on('error', e => { clearTimeout(timer); reject(new Error(e.code === 'ENOENT' ? `Could not find the "${bin}" command. Install Claude Code and sign in (run "claude" once).` : e.message)); });
     child.on('close', code => {
       clearTimeout(timer);
+      console.log(`  claude -p: ${((Date.now() - started) / 1000).toFixed(1)}s, ${out.length} chars`);
       if (code === 0 && out.trim()) return resolveP(out);
       reject(new Error(`claude exited with code ${code}: ${(err || out).trim().slice(0, 300) || 'no output. Are you signed in? Run "claude" once to log in.'}`));
     });
@@ -37,22 +40,23 @@ export function claudeCLI({ prompt }, { bin = process.env.CLAUDE_BIN || 'claude'
 
 export function makeServer({ ask = claudeCLI, lookup } = {}) {
   const ctx = { claude: ask, ...(lookup ? { lookup } : {}) };
-  let busy = false; // one Claude call at a time: keeps usage predictable and the CLI happy
+  let running = 0; // at most MAX_PARALLEL Claude calls at once (the shelves load in parallel)
   return createServer(async (req, res) => {
     try {
       const url = new URL(req.url, 'http://localhost');
       if (url.pathname === '/api/config') return json(res, 200, { passcodeRequired: false, mode: 'local-claude-code' });
       if (url.pathname.startsWith('/api/')) {
-        const fn = { '/api/profile': profile, '/api/recommend': recommend }[url.pathname.replace(/\/+$/, '')];
+        const fn = { '/api/profile': profile, '/api/shelf': shelf, '/api/explain': explain }[url.pathname.replace(/\/+$/, '')];
         if (!fn) return json(res, 404, { error: 'Not found' });
         if (req.method !== 'POST') return json(res, 405, { error: 'POST only' });
-        if (busy) return json(res, 429, { error: 'Still working on the previous request. Give it a minute.' });
+        if (running >= MAX_PARALLEL) return json(res, 429, { error: 'Too many requests at once. Give it a moment.' });
         let raw = ''; for await (const c of req) { raw += c; if (raw.length > 2_000_000) return json(res, 413, { error: 'Request too large' }); }
         let body; try { body = JSON.parse(raw || '{}'); } catch { return json(res, 400, { error: 'Invalid JSON' }); }
-        busy = true;
-        try { return json(res, 200, await fn(body, ctx)); }
+        running++;
+        const t0 = Date.now();
+        try { const out = await fn(body, ctx); console.log(`${url.pathname}${body.shelf !== undefined ? ' #' + body.shelf : ''}: ${((Date.now() - t0) / 1000).toFixed(1)}s total`); return json(res, 200, out); }
         catch (e) { console.error(e.message); return json(res, e.status || 500, { error: e.message || 'Server error' }); }
-        finally { busy = false; }
+        finally { running--; }
       }
       // static files from public/
       let rel = normalize(decodeURIComponent(url.pathname)).replace(/^(\.\.[/\\])+/, '');
