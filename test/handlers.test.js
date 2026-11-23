@@ -176,7 +176,8 @@ test('dismiss reasons and pinned picks reach the prompt; notes reach the library
 test('recent shelf asks for the right window and the profile prompt asks for statements', () => {
   const recent = SHELVES.find(s => s.title === 'Recent arrivals');
   assert.match(shelfPrompt({ library }, recent), new RegExp(`published in ${new Date().getFullYear() - 5} or later`));
-  assert.match(profilePrompt(library), /ONE PER LINE/);
+  assert.match(profilePrompt(library), /5-6 statements, ONE PER LINE/);
+  assert.match(profilePrompt(library), /at most 12 words/);
 });
 
 test('worker config lists the shelves for the front end', async () => {

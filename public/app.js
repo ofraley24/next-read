@@ -130,17 +130,21 @@ function parseStatements(p) {
   return lines.length > 1 ? lines : text.split(/(?<=[.!?])\s+/).map(s => s.trim()).filter(Boolean);   // older prose profiles become sentences
 }
 function syncStatements() {
-  state.profile = [...$('statements').querySelectorAll('input')].map(i => i.value.trim()).filter(Boolean).map(s => '- ' + s).join('\n');
+  state.profile = [...$('statements').querySelectorAll('textarea')].map(i => i.value.replace(/\s+/g, ' ').trim()).filter(Boolean).map(s => '- ' + s).join('\n');
   save(); renderBuild();
 }
 function renderStatements() {
   if (profiling) {
     $('statements').innerHTML = '<div class="by" style="margin-bottom:8px">Reading your library and writing up your taste…</div>' + '<div class="skelline"></div>'.repeat(6);
   } else {
-    $('statements').innerHTML = parseStatements(state.profile).map(s => `<div class="stmt"><input type="text" value="${esc(s)}"><button class="x" title="Remove" aria-label="Remove">×</button></div>`).join('')
+    $('statements').innerHTML = parseStatements(state.profile).map(s => `<div class="stmt"><textarea rows="1">${esc(s)}</textarea><button class="x" title="Remove" aria-label="Remove">×</button></div>`).join('')
       || '<div class="by" style="margin-bottom:8px">No description yet. Press “Re-read my library”.</div>';
     $('statements').querySelectorAll('.stmt').forEach(row => {
-      row.querySelector('input').oninput = syncStatements;
+      const ta = row.querySelector('textarea');
+      const fit = () => { ta.style.height = 'auto'; ta.style.height = ta.scrollHeight + 'px'; };   // grow to fit the whole line
+      ta.oninput = () => { fit(); syncStatements(); };
+      ta.onkeydown = e => { if (e.key === 'Enter') e.preventDefault(); };                           // one statement per box
+      requestAnimationFrame(fit);
       row.querySelector('.x').onclick = () => { row.remove(); syncStatements(); };
     });
   }

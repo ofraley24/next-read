@@ -21,11 +21,14 @@ export function libraryText(lib, full = false) {
 }
 
 export function profilePrompt(lib) {
-  return `You are the taste analyst for a personal bookshop. Below is one reader's Goodreads library. Write their taste profile as 8-12 short statements, ONE PER LINE, each starting with "- " and written in second person ("You ..."). Each statement is a single claim the reader can check and edit. Cover:
-- What they value, framed as what books ARGUE or explore, not genre labels (e.g. whether an author believes in human ingenuity vs. pessimism about the limits of knowledge; ideas, explanation, epistemology, society-building).
-- The style and narrative voice they respond to, and what they dislike (infer from low ratings, DNFs, reviews and notes).
-- One or two interesting tensions or gaps in their taste.
-MY NOTES are the reader's private notes and the strongest evidence of preference: weigh them above star ratings. Do not invent books they have not listed. Output only the statements, no heading or commentary.
+  return `You are the taste analyst for a personal bookshop. Below is one reader's Goodreads library. Give a compressed judgement of their taste as 5-6 statements, ONE PER LINE, each starting with "- ".
+
+Each statement:
+- is at most 12 words, in second person ("You ...");
+- names a meta-level pattern: the big questions, attitudes or kinds of thinking they are drawn to (e.g. "You want books that explain how knowledge actually grows."), or a style they love or reject. Not genres, not plot summaries, not lists of titles;
+- is one clear claim the reader can agree with or delete.
+
+Cover what they value, the voice or style they respond to, what they dislike (from low ratings, DNFs, reviews and notes), and one tension in their taste. MY NOTES are the reader's private notes and the strongest evidence: weigh them above star ratings. Output only the statements.
 
 ${libraryText(lib, true)}`;
 }
