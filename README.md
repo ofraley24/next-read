@@ -61,6 +61,15 @@ APP_PASSCODE=anything
 
 then `npm run dev` and open the printed URL.
 
+## How the site flows
+
+1. **Import** your Goodreads CSV (parsed in the browser).
+2. **Your taste**: the shop writes 8-12 statements describing your taste from your ratings, reviews and private notes. Edit, delete or add any of them.
+3. **Your brief**: on the same screen, say which topics interest you and what you want your next read to be, plus optional quick nudges. This brief is sent with every shelf and question.
+4. **Your shop**: themed shelves you scroll across. Reaching the end of a row stocks more books on it (up to 120 per shelf), and shelves further down the page are stocked as you reach them.
+5. **Dive into a book**: click a cover for why it fits you, then ask follow-up questions about that book in the sheet.
+6. **Refine**: write feedback ("less bleak") and press Restock; your pins, "not for me" reasons, chips and filters all count. "Edit my taste and brief" goes back to step 2 without losing the shop.
+
 ## How a run works (and how to tune it)
 
 1. `/api/profile`: one call writes your taste profile as 8-12 short statements from the full library (reviews and private notes included; notes are weighted above star ratings). You can edit, delete or add statements, and every shelf follows them. Press **Re-read my library** after importing new notes.

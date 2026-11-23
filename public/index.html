@@ -12,55 +12,76 @@
 <header>
   <h1>Next Read</h1>
   <span class="tag">a bespoke bookshop, built from your shelves</span>
+  <nav id="steps" aria-label="Steps"></nav>
   <span class="spacer"></span>
-  <label class="tag link-label">Import Goodreads CSV<input id="csv" type="file" accept=".csv" hidden></label>
+  <label class="tag link-label">Re-import CSV<input id="csv2" type="file" accept=".csv" hidden></label>
   <button class="tag link-label" id="reset" title="Clear saved library, picks and passcode">Reset</button>
 </header>
 
 <div class="wrap">
-<aside>
-  <div class="panel">
-    <h3>Your library</h3>
-    <div class="stat" id="stats"></div>
-    <div class="hint" id="libmsg" hidden></div>
-    <details style="margin-top:10px"><summary>Rated books</summary><div id="rated" style="margin-top:8px"></div></details>
-  </div>
-  <div class="panel">
-    <h3>Your taste, as I read it</h3>
-    <p class="mini"><span>Each line is a claim about you. Edit, delete or add; every shelf follows what is written here.</span></p>
-    <div id="statements"></div>
-    <div class="steer"><input type="text" id="newstmt" placeholder="Add one, e.g. I dislike padded middles"><button id="addstmt">Add</button></div>
-    <div class="hint" id="stale" hidden>Your library has changed since these were written. Re-read it to pick up new notes and books.</div>
-    <div class="acts"><button id="reprofile">Re-read my library</button></div>
-  </div>
-  <div class="panel">
-    <h3>Shortlist <span class="tag-s" id="slc">0</span></h3>
-    <ul class="sl" id="shortlist"></ul>
-  </div>
-</aside>
 
-<main>
-  <div class="panel">
-    <h3 style="font-size:18px">Steer the shop</h3>
-    <div class="chips" id="chips"></div>
-    <div class="filters" id="filters"></div>
-    <div class="steer">
-      <input type="text" id="free" placeholder="Anything else? e.g. “like Excession but with more science”">
-      <button class="primary" id="go">Build my shop</button>
+<!-- 1. Import -->
+<section id="step-import" class="step hero">
+  <h2>Your own bookshop, stocked from your shelves</h2>
+  <p class="by">Export your Goodreads library (My Books → Import and export → Export Library), then bring the CSV here.<br>Your ratings, reviews and private notes are what the shop learns from.</p>
+  <label class="bigbtn">Import Goodreads CSV<input id="csv" type="file" accept=".csv" hidden></label>
+  <div class="err" id="importerr"></div>
+</section>
+
+<!-- 2 + 3. Taste description, then the reader's brief -->
+<section id="step-taste" class="step" hidden>
+  <div class="two">
+    <div class="panel">
+      <h2>Your taste, as I read it</h2>
+      <div class="stat" id="stats"></div>
+      <div class="hint" id="libmsg" hidden></div>
+      <p class="mini"><span>Each line is a claim about you. Fix anything that is wrong, delete what doesn’t fit, add what’s missing.</span></p>
+      <div id="statements"></div>
+      <div class="steer"><input type="text" id="newstmt" placeholder="Add one, e.g. I dislike padded middles"><button id="addstmt">Add</button></div>
+      <div class="hint" id="stale" hidden>Your library has changed since these were written. Re-read it to pick up new notes and books.</div>
+      <div class="acts"><button id="reprofile">Re-read my library</button></div>
+      <details style="margin-top:12px"><summary>Rated books</summary><div id="rated" style="margin-top:8px"></div></details>
     </div>
-    <div class="err" id="err"></div>
+    <div class="panel">
+      <h2>Now tell me what you’re after</h2>
+      <label class="field" for="interests">Topics and ideas you find interesting</label>
+      <textarea id="interests" placeholder="e.g. how knowledge grows, the philosophy of science, first contact, how institutions fail or succeed"></textarea>
+      <label class="field" for="nextread">What should your next read be?</label>
+      <textarea id="nextread" placeholder="e.g. a big optimistic novel about building something; nothing too bleak; ideally under 500 pages"></textarea>
+      <label class="field">Quick nudges</label>
+      <div class="chips chipbox"></div>
+      <div class="acts"><button class="primary" id="build">Build my shop</button><button id="toshop" hidden>Back to my shop</button></div>
+      <div class="err" id="tasteerr"></div>
+    </div>
   </div>
-  <div class="panel" id="askpanel">
-    <h3 style="font-size:18px">Ask the shop</h3>
-    <div id="thread"></div>
-    <div class="steer">
-      <input type="text" id="q" placeholder="e.g. “Does Anathem fit my taste?” or “Which of my pinned books should I read first?”">
-      <button class="primary" id="ask">Ask</button>
+</section>
+
+<!-- 4–6. The shop: refine, ask, endless shelves -->
+<section id="step-shop" class="step" hidden>
+  <div class="two">
+    <div class="panel">
+      <h3>Refine the shop</h3>
+      <p class="mini"><span id="fbmeta"></span></p>
+      <div id="fblist"></div>
+      <div class="steer"><input type="text" id="fb" placeholder="Tell it what to change, e.g. less bleak, more about how science works"><button class="primary" id="restock">Restock</button></div>
+      <div class="chips chipbox"></div>
+      <div class="filters" id="filters"></div>
+      <div class="acts"><button id="edittaste">Edit my taste and brief</button></div>
+      <div class="err" id="err"></div>
     </div>
-    <div class="acts" id="askacts" hidden><button id="clearchat">Clear conversation</button></div>
+    <div class="panel">
+      <h3>Ask the shop</h3>
+      <div id="thread"></div>
+      <div class="steer">
+        <input type="text" id="q" placeholder="e.g. “Does Anathem fit my taste?” or “Which pinned book first?”">
+        <button class="primary" id="ask">Ask</button>
+      </div>
+      <div class="acts" id="askacts" hidden><button id="clearchat">Clear conversation</button></div>
+    </div>
   </div>
   <div id="shelves"></div>
-</main>
+</section>
+
 </div>
 
 <div class="modal" id="modal"><div class="sheet" id="sheet"></div></div>

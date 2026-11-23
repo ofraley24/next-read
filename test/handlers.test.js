@@ -203,3 +203,16 @@ test('ask rejects missing library or question', async () => {
   await assert.rejects(() => ask({ library }, c), /question is required/);
   assert.match(askPrompt({ library, question: 'x'.repeat(5000) }), /READER'S QUESTION: x{1000}$/);   // long questions are cut
 });
+
+test('brief and written feedback reach shelf and ask prompts; a focus book reaches the ask prompt', () => {
+  const body = { library, profile: '- x', brief: { interests: 'how science works', next: 'something optimistic' }, feedback: ['less bleak', 'more history'] };
+  const sp = shelfPrompt(body, SHELVES[2]);
+  assert.match(sp, /Topics and ideas they find interesting: how science works/);
+  assert.match(sp, /What they want their next read to be: something optimistic/);
+  assert.match(sp, /- less bleak\n- more history/);
+  assert.doesNotMatch(shelfPrompt({ library, profile: '- x' }, SHELVES[2]), /READER'S BRIEF|FEEDBACK ON/);
+  const ap = askPrompt({ ...body, question: 'is it slow?', focus: { title: 'Diaspora', author: 'Greg Egan', why: 'Because Excession.' } });
+  assert.match(ap, /ASKING ABOUT THIS BOOK: Diaspora — Greg Egan/);
+  assert.match(ap, /Why the shop recommended it: Because Excession\./);
+  assert.match(ap, /something optimistic/);
+});

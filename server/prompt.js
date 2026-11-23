@@ -34,7 +34,7 @@ ${libraryText(lib, true)}`;
 // rule may use {since} (five years ago). pitchWords is the length of the hook line.
 export const SHELVES = [
   { title: 'On the front table', blurb: 'Six picks for today. Freshen it for a new window.', count: 6, mixToRead: true, pitchWords: 18,
-    rule: 'The six books you would put in the shop window for this reader today: your strongest, most compelling picks across the whole shop. Mix books from the TO-READ list (exact title and author as listed) with new books. The pitch is the reason, in plain words.' },
+    rule: 'The six books you would put in the shop window for this reader today: your strongest picks, leaning hardest on what they say they want their next read to be. Mix books from the TO-READ list (exact title and author as listed) with new books. The pitch is the reason, in plain words.' },
   { title: 'From your to-read pile', blurb: 'Already on your list, ranked by what to read next.', count: 10, fromToRead: true,
     rule: 'Pick from the TO-READ list only, using the exact title and author as listed. Rank them: best next read first.' },
   { title: 'Closest fit', blurb: 'New books that sit closest to what you rate highest.', count: 20,
@@ -62,10 +62,20 @@ export const seedSpec = ({ title, author }) => ({
 });
 
 const listLine = (label, items) => `${label}: ${items.length ? items.join('; ') : 'none'}`;
-const steerBlock = ({ profile = '', steer = [], pinned = [], dismissed = [] }) => `TASTE PROFILE (reader-edited statements, authoritative):
+// The reader's own words from the "tell me what you're after" step.
+export function briefBlock(brief = {}) {
+  const i = String(brief.interests || '').trim().slice(0, 1500), n = String(brief.next || '').trim().slice(0, 1500);
+  if (!i && !n) return '';
+  return `READER'S BRIEF (their own words; weigh this heavily):\n${i ? `- Topics and ideas they find interesting: ${i}\n` : ''}${n ? `- What they want their next read to be: ${n}\n` : ''}`;
+}
+export function feedbackBlock(feedback = []) {
+  const fb = (Array.isArray(feedback) ? feedback : []).map(f => String(f).trim()).filter(Boolean).slice(-10);
+  return fb.length ? `FEEDBACK ON EARLIER SHELVES (oldest first; follow it, and the latest wins if two conflict):\n${fb.map(f => '- ' + f.slice(0, 400)).join('\n')}\n` : '';
+}
+const steerBlock = ({ profile = '', steer = [], pinned = [], dismissed = [], brief, feedback }) => `TASTE PROFILE (reader-edited statements, authoritative):
 ${profile}
 
-STEERING: ${steer.length ? steer.join('; ') : 'none'}
+${briefBlock(brief)}${feedbackBlock(feedback)}STEERING: ${steer.length ? steer.join('; ') : 'none'}
 ${listLine('PINNED (liked from earlier picks; do not repeat, but find more in this spirit)', pinned)}
 ${listLine('DISMISSED (do not suggest; any reason given is real feedback, learn from it)', dismissed)}`;
 
@@ -79,7 +89,7 @@ SHELF: "${spec.title}" — exactly ${spec.count} books. ${spec.rule.replace('{si
 RULES
 - Only REAL, well-known published books you are confident exist, with the correct author. If unsure a book exists, leave it out; never invent titles. (Every title is checked against a real catalogue and dropped if not found.)
 - ${spec.fromToRead ? 'Every book must come from the TO-READ list.' : spec.mixToRead ? 'Books are either from the TO-READ list (exact title and author as listed) or new books not in the library at all.' : 'Do NOT recommend anything already in the library (read, DNF, currently reading or to-read).'}
-- Link on underlying ideas, themes and narrative voice, not genre, popularity or "readers also liked". The reader's profile and notes outrank genre habits. Respect the steering below.
+- Link on underlying ideas, themes and narrative voice, not genre, popularity or "readers also liked". The reader's profile, brief, feedback and notes outrank genre habits. Every shelf should honour the brief and feedback below where they apply.
 - Vary authors, decades and subjects: at most one book per author on this shelf.
 - "pitch" is a hook of at most ${spec.pitchWords || 12} words saying what ties it to this reader.
 - "kind" is "fiction" or "non-fiction". "pages" is your best approximate page count as an integer, or 0 if unsure.
@@ -111,7 +121,7 @@ ${libraryText(library)}`;
 }
 
 // Free-form questions about the shop ("does X fit me?"). Sees the library, the taste statements and what is on the shelves now.
-export function askPrompt({ library, profile = '', shelves = [], pinned = [], dismissed = [], history = [], question }) {
+export function askPrompt({ library, profile = '', shelves = [], pinned = [], dismissed = [], history = [], question, brief, feedback, focus }) {
   const shelfText = shelves.map(sh => `${sh.shelf}:\n${(sh.books || []).map(b => `  ${b.title} — ${b.author}${b.year ? ' (' + b.year + ')' : ''}${b.pitch ? ': ' + b.pitch : ''}`).join('\n') || '  (empty)'}`).join('\n') || '(nothing stocked yet)';
   const turns = history.slice(-6).map(t => `READER: ${String(t.q).slice(0, 500)}\nYOU: ${String(t.a).slice(0, 900)}`).join('\n\n');
   return `You are the bookseller in a personal bookshop. The reader is asking the shop a question. Answer from their own library, notes and taste statements, and from what is currently on the shelves.
@@ -125,7 +135,7 @@ HOW TO ANSWER
 TASTE PROFILE (reader-edited statements, authoritative):
 ${profile || '(none yet)'}
 
-PINNED: ${pinned.join('; ') || 'none'}
+${briefBlock(brief)}${feedbackBlock(feedback)}PINNED: ${pinned.join('; ') || 'none'}
 DISMISSED (with reasons): ${dismissed.join('; ') || 'none'}
 
 ON THE SHELVES NOW:
@@ -133,6 +143,6 @@ ${shelfText}
 
 LIBRARY:
 ${libraryText(library, true)}
-${turns ? `\nEARLIER IN THIS CONVERSATION:\n${turns}\n` : ''}
+${focus && focus.title ? `\nTHE READER IS ASKING ABOUT THIS BOOK: ${focus.title} — ${focus.author || ''}${focus.year ? ' (' + focus.year + ')' : ''}${focus.pitch ? '\nShop pitch: ' + String(focus.pitch).slice(0, 300) : ''}${focus.why ? '\nWhy the shop recommended it: ' + String(focus.why).slice(0, 900) : ''}\nAnswer about this book unless the question clearly asks about something else.\n` : ''}${turns ? `\nEARLIER IN THIS CONVERSATION:\n${turns}\n` : ''}
 READER'S QUESTION: ${String(question).slice(0, 1000)}`;
 }
